@@ -1,0 +1,159 @@
+---
+title: "Query a database with SQL and dplyr"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(cache=FALSE, message = FALSE, warning = FALSE)
+```
+
+
+We will experience querying a database with both SQL and dplyr:
+
+1. create a SQLite database and insert nycflights13 tables;
+2. run the following queries in both dplyr and SQL:
+    * flights on Christmas;
+    * the number of flights per day
+    * flights that flew with a plane manufactured by BOEING
+
+
+```{r}
+## Load libraries
+library(DBI)
+library(dplyr)
+library(dbplyr)
+library(nycflights13)
+
+# Connect to the database
+nyc <- dbConnect(RSQLite::SQLite(), "nycflights13")
+
+
+# Add surrogate key to flights
+flights <- 
+  flights |> 
+  arrange(year, month, day, sched_dep_time, carrier, flight) |>
+  mutate(id = row_number()) |>
+  select(id, everything())
+
+# cure the violation of FKC
+id_set_planes = anti_join(flights, planes, by = "tailnum")$id
+id_set_airports = anti_join(flights, airports, by = c("dest" = "faa"))$id
+flights = 
+  mutate(flights, tailnum = ifelse(id %in% id_set_planes, NA, tailnum),
+                  dest = ifelse(id %in% id_set_airports, NA, dest))
+
+
+# write data frames into database tables (if necessary)
+dbWriteTable(nyc, "flights", flights)
+dbWriteTable(nyc, "airports", airports)
+dbWriteTable(nyc, "planes", planes)
+dbWriteTable(nyc, "weather", weather)
+dbWriteTable(nyc, "airlines", airlines)
+
+# list tables
+dbListTables(nyc)
+
+# list fields of a table
+dbListFields(nyc, "flights")
+```
+
+
+```{r}
+# flights on Christmas
+
+flights_db <- tbl(nyc, "flights")
+
+# dplyr
+dplyr_res = 
+  flights_db |> 
+  filter(month == 12 & day == 25)
+
+## SQL
+querySQL = 
+"select *
+from flights 
+where month = 12 and day = 25"
+
+sql_res = dbGetQuery(nyc, querySQL)
+
+# collect data from database 
+dplyr_res = dplyr_res |> collect()
+
+# Check if they are the same
+# Recall that for two sets A and B we have that: A = B iff A <= B and B <= A iff (A - B) = 0 and  (B - A) = 0
+nrow(setdiff(dplyr_res, sql_res))
+nrow(setdiff(sql_res, dplyr_res))
+
+```
+
+```{r}
+# the number of flights per day
+
+## dplyr
+dplyr_res = 
+  flights_db |> 
+  group_by(month, day) |>
+  summarise(count = n())
+
+
+## SQL
+querySQL = 
+"select month, day, count(*) as count
+from flights
+group by month, day"
+
+sql_res = dbGetQuery(nyc, querySQL)
+
+# Collect data from database 
+dplyr_res = dplyr_res |> collect()
+
+# Check if they are the same
+nrow(setdiff(dplyr_res, sql_res))
+nrow(setdiff(sql_res, dplyr_res))
+
+```
+
+```{r}
+# flights that flew with a plane manufactured by BOEING
+
+planes_db <- tbl(nyc, "planes")
+
+## dplyr
+dplyr_res = 
+  inner_join(flights_db, 
+           filter(planes_db, manufacturer == "BOEING"),  
+           join_by(tailnum)) |>
+  select(id, tailnum, manufacturer)
+
+## SQL
+querySQL = 
+"select flights.id, flights.tailnum, planes.manufacturer
+from flights, planes
+where flights.tailnum = planes.tailnum and planes.manufacturer = 'BOEING'
+"
+
+sql_res = dbGetQuery(nyc, querySQL)
+
+# Collect data from database 
+dplyr_res = dplyr_res |> collect()
+
+# Check if they are the same
+nrow(setdiff(dplyr_res, sql_res))
+nrow(setdiff(sql_res, dplyr_res))
+
+```
+
+
+```{r}
+# disconnect the database
+dbDisconnect(nyc)
+
+# remove  the database (if necessary)
+unlink("nycflights13")
+```
+
+
+
+

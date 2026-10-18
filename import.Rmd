@@ -1,0 +1,136 @@
+---
+title: "Data import"
+author: "Massimo Franceschet"
+output:
+  slidy_presentation:
+    incremental: true
+  ioslides_presentation:
+    css: ../style.css
+    incremental: true
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+
+## Tibbles
+
+**Tibbles** are data frames, but they tweak some older behaviours to make life a little easier. They are defined in the `tibble` package.
+
+Most R packages use regular data frames, so you might want to coerce a data frame to a tibble:
+
+```{r}
+library(tibble)
+as_tibble(iris)
+```
+
+You can create a new tibble from individual vectors with `tibble()`; it will automatically recycle inputs of length 1, and allows you to refer to variables that you just created:
+
+
+```{r}
+tibble(
+  x = 1:5, 
+  y = 1, 
+  z = x ^ 2 + y
+)
+```
+
+If you're already familiar with data frames, note that tibbles do much less: 
+
+1. it never changes the names of variables
+1. they never do partial matching when subsetting
+
+
+```{r eval=FALSE}
+# it never changes the names of variables
+tibble(a = 1:10, a = 11:20)
+data.frame(a = 1:10, a = 11:20)
+
+names(tibble(`crazy name` = 1))
+names(data.frame(`crazy name` = 1))
+
+# they never do partial matching when subsetting
+tb = tibble(abc = 1:10)
+df = data.frame(abc = 1:10)
+tb$a
+df$a
+
+```
+
+## Read and write CSV
+
+Here you'll learn how to read plain-text rectangular files (Comma Separated Value, or CSV file) into R using the `readr` package. 
+
+```{r}
+library(readr)
+```
+
+Read a CSV file with `read_csv()`; it prints out a column specification that gives the name and type of each column:
+
+```{r}
+file = "http://users.dimi.uniud.it/~massimo.franceschet/ns/plugandplay/import/heights.csv"
+heights = read_csv(file)
+heights
+
+```
+
+You can also view the data frame with the `View()` function. 
+
+`read_csv()` uses the first line of the data (the header) for the column names, which is a very common convention. There are cases where you might want to tweak this behaviour:
+
+```{r}
+# skip lines
+read_csv("The first line of metadata
+          The second line of metadata
+          x,y,z
+          1,2,3", 
+        skip = 2)
+
+# skip comments    
+read_csv("# A comment I want to skip
+          x,y,z
+          1,2,3", 
+         comment = "#")
+    
+# no header
+read_csv("1,2,3\n4,5,6", col_names = FALSE)
+read_csv("1,2,3\n4,5,6", col_names = c("x", "y", "z"))
+```
+
+You can specify which data to interpret as NA values as follows (recall that NA has type logical):
+
+```{r}
+typeof(NA)
+
+# NA as NA
+read_csv("a,b,c\n1,NA,.")
+
+# . as NA
+read_csv("a,b,c\n1,NA,.", na = ".")
+```
+
+
+Package `readr` also comes with a useful function for writing data back to disk: `write_csv()`. 
+
+```{r}
+write_csv(heights, "heights.csv")
+```
+
+
+One alternative to read and write data is using **RDS** format (R's custom binary format):
+
+```{r}
+write_rds(heights, "heights.rds")
+read_rds("heights.rds")
+
+```
+
+
+
+
+
+

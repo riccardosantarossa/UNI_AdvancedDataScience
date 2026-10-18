@@ -1,0 +1,405 @@
+---
+title: "Data visualization"
+author: "Massimo Franceschet"
+output:
+  slidy_presentation:
+    incremental: true
+  ioslides_presentation:
+    css: ../style.css
+    incremental: true
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Overview
+
+[ggplot2](https://ggplot2.tidyverse.org) is a system for declaratively creating graphics. You provide:
+
+>* the data, 
+>* what graphical primitives to use, 
+>* tell how to map variables to aesthetics,
+
+and it takes care of the details.
+
+
+
+## ggplot2 template
+
+The following is a reusable template for making graphs with ggplot2:
+
+```{r eval = FALSE}
+ggplot(data = <DATA FRAME>) + 
+  <GEOMETRIC OBJECT>(mapping = aes(<MAPPINGS>))
+```
+
+
+1. the **data frame**  contains the variables we want to display
+3. the **geometric object**  is the geometry used by the plot to represent data (scatterplot, barplot, boxplot, and more)
+2. the **aesthetic mapping** associates data frame variables to aesthetics of the plot. 
+4. An aesthetics is a visual property of the objects in your plot (size,  shape, color, x and y positions)
+
+## The mpg dataset
+
+We will work with the mpg dataset that contains fuel economy data and use the following variables:
+
+ * **displ**: engine displacement, in litres 
+ * **hwy**: highway miles per gallon 
+ * **drv** drive type: f = front-wheel drive, r = rear wheel drive, 4 = 4wd
+ 
+```{r}
+library(ggplot2)
+library(dplyr)
+mpg
+```
+ 
+
+## Aesthetics mapping
+
+Let us stick to the well-known scatterplot geometric object `geom_point()` for the moment. 
+
+
+```{r}
+library(ggplot2)
+
+# scatteplot of displ and hwy
+ggplot(data = mpg) +
+  geom_point(mapping = aes(x = displ, y = hwy))
+
+# add drv as color
+ggplot(data = mpg) +
+  geom_point(mapping = aes(x = displ, y = hwy, color = drv))
+```
+
+## Geometric objects
+
+We will discover different geometric objects by exploring variation and covariation of qualitative and quantitative variables:
+
+* **variation** is the tendency of the values of a variable to change from measurement to measurement
+* **covariation** is the tendency for the values of two or more variables to vary together in a related way
+* if variation describes the behavior _within_ a variable, covariation describes the behavior _between_ variables 
+
+## The diamonds dataset
+
+A dataset diamonds contains the prices and other attributes of almost 54,000 diamonds. The main attributes are:
+
+* **price**: price in US dollars
+* **carat**: weight of the diamond
+* **cut**: quality of the cut (Fair, Good, Very Good, Premium, Ideal)
+* **color**: diamond colour, from D (best) to J (worst)
+* **clarity**: a measurement of how clear the diamond is (I1 (worst), SI2, SI1, VS2, VS1, VVS2, VVS1, IF (best))
+
+## Qualitative variation: barplot
+
+```{r}
+ggplot(data = diamonds) +
+  geom_bar(mapping = aes(x = cut))
+
+```
+
+## Quantitative variation: histogram
+```{r}
+ggplot(data = diamonds) +
+  geom_histogram(mapping = aes(x = carat), binwidth = 0.2)
+
+ggplot(data = filter(diamonds, carat <= 2.5)) +
+  geom_histogram(mapping = aes(x = carat), binwidth = 0.01)
+
+ggplot(data = diamonds) +
+  geom_freqpoly(mapping = aes(x = carat), binwidth = 0.2)
+
+
+```
+
+## Qualitative versus qualitative covariation
+
+```{r}
+ggplot(data = diamonds) +
+  geom_bar(mapping = aes(x = cut, fill = color))
+
+# putting the bars beside one another
+ggplot(data = diamonds) +
+  geom_bar(mapping = aes(x = cut, fill = color), position = "dodge")
+
+```
+
+## Qualitative versus quantitative covariation
+
+```{r}
+ggplot(data = mpg) +
+  geom_boxplot(mapping = aes(x = class, y = hwy))  
+
+# reaorder qualitative variable class
+ggplot(data = mpg) +
+  geom_boxplot(mapping = aes(x = reorder(class, hwy, FUN = median), 
+                             y = hwy))  
+
+ggplot(data = diamonds) + 
+  geom_freqpoly(mapping = aes(x = price, colour = cut), binwidth = 500)
+```
+
+## Quantitative versus quantitative covariation
+
+```{r}
+ggplot(data = diamonds) +
+  geom_point(mapping = aes(x = carat, y = price))
+
+# use transparency to avoid overlapping of points
+ggplot(data = diamonds) +
+  geom_point(mapping = aes(x = carat, y = price), alpha = 0.05)
+
+
+ggplot(data = diamonds) +
+  geom_point(mapping = aes(x = log(carat), y = log(price)), alpha = 0.05)
+
+```
+
+## Multiple goemetric objects
+
+We overlay geom_point and geom_smooth geometries. 
+
+[geom_smooth](https://en.wikipedia.org/wiki/Local_regression) uses **local polynomial regression**, also known as moving regression, a generalization of moving average and polynomial regression.
+
+```{r}
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy)) +
+  geom_point() + 
+  geom_smooth()
+```
+
+
+
+## Global and local mappings
+
+* **global mappings** of variables  hold for all geometric objects in the plot
+* **local mappings** of variables hold only for the geometric object containing the mapping and can overwrite global mappings
+
+```{r}
+# color is global
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy, color = drv)) +
+  geom_point() + 
+  geom_smooth(se = FALSE)
+
+# color is local to geom_point
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy)) +
+  geom_point(mapping = aes(color = drv)) + 
+  geom_smooth(se = FALSE)
+
+# color is local to geom_smooth
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy)) +
+  geom_point() + 
+  geom_smooth(mapping = aes(color = drv), se = FALSE)
+
+```
+
+## From exploratory to expository graphic
+
+ggplot2 contains much more, that you need to exploit when turning an **exploratory** graphic into an **expository** graphic:
+
+1. facets
+1. labels
+1. annotations
+1. scales
+1. zooming
+1. themes
+
+## A final example
+
+```{r echo=FALSE}
+# filter best model in each class
+best_in_class <- mpg |>
+  group_by(class) |>
+  arrange(desc(hwy)) |> 
+  filter(row_number() == 1)
+
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point(aes(color = class)) +
+  geom_point(data = best_in_class, size = 3, shape = 1) +
+  ggrepel::geom_label_repel(data = best_in_class, mapping = aes(label = model)) +
+  geom_smooth(se = FALSE) +
+  labs(
+    title = "Fuel efficiency generally decreases with engine size",
+    subtitle = "Two seaters (sports cars) are an exception because of their light weight",
+    caption = "Data from fueleconomy.gov",
+    x = "Engine displacement (L)",
+    y = "Highway fuel economy (mpg)",
+    colour = "Car class"
+  ) +
+  theme_classic()
+
+```
+
+```{r eval=FALSE}
+# filter best model in each class
+best_in_class <- mpg |>
+  group_by(class) |>
+  arrange(desc(hwy)) |> 
+  filter(row_number() == 1)
+
+best_in_class |> 
+  select(class, model, displ, hwy) |> 
+  arrange(displ, hwy)
+
+
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point(aes(colour = class)) +
+  geom_point(data = best_in_class, size = 3, shape = 1) +
+  ggrepel::geom_label_repel(data = best_in_class, 
+                            mapping = aes(label = model)) +
+  geom_smooth(se = FALSE) +
+  labs(
+    title = "Fuel efficiency generally decreases 
+    with engine size",
+    subtitle = "Two seaters (sports cars) are an exception 
+    because of their light weight",
+    caption = "Data from fueleconomy.gov",
+    x = "Engine displacement (L)",
+    y = "Highway fuel economy (mpg)",
+    colour = "Car class"
+  ) +
+  theme_classic()
+
+```
+
+
+## Play
+
+The `presidential` data set in ggplot2 package contains the names of each president, the start and end date of their term, and their party of 11 US presidents from Eisenhower to Obama.  
+
+```{r}
+presidential
+
+```
+
+
+Draw the following plot:
+
+```{r echo = FALSE}
+presidential |>
+  mutate(id = 33 + 1:nrow(presidential)) |>
+  ggplot(aes(x = start, y = id, colour = party)) +
+  geom_point() +
+  geom_segment(aes(xend = end, yend = id)) +
+  scale_colour_manual(values = c(Republican = "red", Democratic = "blue")) +
+  theme_bw()
+
+```
+
+using the following **scaffolding**:
+
+```{r eval=FALSE, echo = TRUE}
+presidential |>
+  # add id of the president starting from 34
+  mutate(id = 33 + nrow(presidential)) |> 
+  # map start, id, and party to x, y, and colour
+  ggplot(aes(start, id, colour = party )) + 
+  # add a point marking the start of the term
+  geom_point() + 
+  # add a segment with length the duration of the presidential term
+  geom_segment(aes(xend = start, yend = end)) + 
+  # set manually the colors (Republican = red, Democratic = blue)
+  scale_colour_manual(values = c("Republican" = "red", "Democratic" = "blue") + 
+  # add black and white theme                        
+  theme_bw()
+
+```
+
+
+## Solution
+
+```{r}
+presidential |>
+  mutate(id = 33 + 1:nrow(presidential)) |>
+  ggplot(aes(start, id, colour = party)) +
+  geom_point() +
+  geom_segment(aes(xend = end, yend = id)) +
+  scale_colour_manual(values = c(Republican = "red", Democratic = "blue")) +
+  theme_bw()
+
+```
+
+## The gapminder dataset
+
+The gapminder dataset is an excerpt of the [Gapminder](https://www.gapminder.org) data on life expectancy, GDP per capita, and population by country.
+
+```{r}
+library(gapminder)
+gapminder
+```
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/jbkSRLYSojo" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
+
+## Play
+
+>1. using the gapminder dataset write a function that plots the scatterplot of GDP and life expectancy using population as size for a given continent and temporal span 
+>2. plot the scatteplot for the same continent increasing the temporal span and for different continents with the same temporal span
+
+
+```{r eval=FALSE}
+gaplot = function(cont, year1, year2) {
+  gapminder |> 
+  filter(___) |>
+  ggplot(aes(___, ___, size = ___, colour = country)) +
+  geom_point(alpha = 0.5, show.legend = FALSE) +
+  scale_colour_manual(values = country_colors) +
+  scale_size(range = c(2, 20)) +
+  scale_x_log10() +
+  labs(title = ___) +    
+  theme_minimal() 
+}
+```
+## Solution
+
+```{r}
+
+country_colors[names(country_colors) == "Italy"]
+
+gaplot = function(cont, year1, year2) {
+  gapminder |> 
+  filter(continent == cont, year >= year1, year <= year2) |>
+  ggplot(aes(gdpPercap, lifeExp, size = pop, colour = country)) +
+  geom_point(alpha = 0.5, show.legend = FALSE) +
+  scale_colour_manual(values = country_colors) +
+  scale_size(range = c(2, 20)) +
+  scale_x_log10() +
+  labs(title = paste(cont, year1, "-", year2)) +    
+  theme_minimal() 
+}
+
+gaplot("Africa", 1960, 1970)
+gaplot("Africa", 1971, 1980)
+gaplot("Africa", 1981, 1990)
+gaplot("Africa", 1991, 2000)
+
+gaplot("Asia", 1991, 2000)
+gaplot("Europe", 1991, 2000)
+gaplot("Americas", 1991, 2000)
+gaplot("Oceania", 1991, 2000)
+
+
+
+
+
+
+```
+
+
+## Dig deeper
+
+>* [ggplot2 cheat sheet](https://github.com/rstudio/cheatsheets/blob/master/data-visualization-2.1.pdf)
+>* [Data visualization with ggplot](https://r4ds.hadley.nz/data-visualize.html)
+>* [Exploratory Data Analysis with dplyr and ggplot](https://r4ds.hadley.nz/EDA.html)
+>* [Graphics for communication](https://r4ds.hadley.nz/communication.html)
+>* Animated graphics with [gganimate](https://gganimate.com/articles/gganimate.html)
+>* Interactive graphics with [HTML widgets](http://www.htmlwidgets.org/index.html)
+
+
+
+
+
+
+
+
