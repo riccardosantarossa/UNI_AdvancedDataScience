@@ -1,0 +1,138 @@
+---
+title: "SoccerStats"
+author: "Riccardo Santarossa"
+date: "2026-10-15"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+Il sito delle statistiche è formato da una pagina principale contenente una serie di collegamenti a file .CSV, ciascuno di essi relativo alle statistiche del campionato di Serie A e/o Serie B dispotato nell'anno in questione, dal 1993 ad oggi.
+
+Per lo scraping la mia idea è quella di accedere ad ogni file .CSV riconoscendo il fatto che è di Serie A dalla **struttura del link** associato: una volta ottenuto l'accesso a ciascun file .CSV, si vuole creare un file .CSV unico, comprensivo di tutte le annate, che però contiene soltanto le colonne richieste. Per evitare la presenza di dati non validi, ovvero quelle osservazioni di cui non si conosce la data, allo scraping "puro" si aggiunge un filtro per tutte quelle osservazioni che hanno un valore *NA* al posto della data.  
+
+Nel frammento qui sotto c'è il codice generato da **ChatGPT** dopo due prompt, uno per capire il contesto, uno con le richieste.
+Il codice generato al primo tentativo non compila. Debugging al fine di ottenere un codice funzionante. Il codice presente alla fine sarà solo quello funzionante.
+```{r warning=FALSE, message=FALSE}
+
+# Leggo la pagina
+pagina = readLines("https://www.football-data.co.uk/italym.php",
+                    warn = FALSE)
+
+# Cerco i percorsi dei CSV della Serie A
+link = unlist(regmatches(
+  pagina,
+  gregexpr('mmz4281/[^"]*I1\\.csv', pagina)
+))
+
+# Creo gli URL completi
+link = paste0("https://www.football-data.co.uk/", link)
+
+# Elimino eventuali duplicati
+link = unique(link)
+
+# 4. Creo un data frame vuoto per raccogliere tutte le partite
+partite = data.frame()
+
+# 5. Leggo tutti i CSV della Serie A
+for (url_file in link) {
+
+  dati = read.csv(url_file, stringsAsFactors = FALSE)
+  
+  # Mantengo solo le colonne richieste
+  dati = dati[, c("Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG")]
+
+  # Controllo che la data sia valida
+  data1 = as.Date(dati$Date, format = "%d/%m/%y")
+  data2 = as.Date(dati$Date, format = "%d/%m/%Y")
+  data3 = as.Date(dati$Date, format = "%Y-%m-%d")
+
+  valida = !is.na(data1) | !is.na(data2) | !is.na(data3)
+
+  # Elimino le righe con date non valide
+  dati = dati[valida, ]
+
+  # Aggiungo le partite al risultato complessivo
+  partite = rbind(partite, dati)
+}
+
+# 6. Salvo tutte le partite in un unico CSV
+write.csv(partite, "soccerStatsSerieA.csv", row.names = FALSE)
+
+```
+
+Come primo passaggio utilizzo le colonne FTHG e FTAG per calcolare l'esito della partita, in base ai gol fatti dalla squadra di casa e da quella in trasferta
+
+Scenari possibili:
+
++ FTHG = FTAG -> pareggio 
++ FTHG > FTAG -> vittoria in casa 
++ FTHG < FTAG -> vittoria in trasferta
+
+```{r echo=FALSE}
+library(tidyr)
+library(dplyr)
+```
+
+```{r message=FALSE, warning=FALSE}
+soccerStatsDF = read.csv("soccerStatsSerieA.csv")
+
+#utilizzo di FTHG e FTAG per costruire la colonna dell'esito del match
+soccerStatsDF = 
+  soccerStatsDF |>
+    mutate(matchOutcome = if_else(soccerStatsDF$FTHG > soccerStatsDF$FTAG, 
+                                  "H", 
+                                  if_else(soccerStatsDF$FTHG == soccerStatsDF$FTAG, "P", "A")))
+soccerStatsDF
+```
+
+Successivamente creo un nuovo dataframe con le informazioni ottenute dal primo: per ogni squadra si vuole calcolare il **numero di partite**, il **numero** di pareggi, sconfitte e vittorie, il **punteggio** ottenuto (con le normali regole dei punteggi calcistici) e il numero medio di **punti a partita**.
+
+```{r message=FALSE, warning=FALSE}
+
+#VITTORIE, SCONFITTE, PAREGGI per ogni squadra IN CASA
+teamsStatsH = soccerStatsDF |> 
+  group_by(HomeTeam) |> 
+  count(matchOutcome) |>
+  pivot_wider(names_from = matchOutcome, values_from = n) |>
+  rename(VittorieCasa = H, SconfitteCasa = A, Pareggi = P, Team = HomeTeam)
+
+#VITTORIE, SCONFITTE, PAREGGI per ogni squadra IN TRASFERTA
+teamsStatsA = soccerStatsDF |> 
+  group_by(AwayTeam) |> 
+  count(matchOutcome) |>
+  pivot_wider(names_from = matchOutcome, values_from = n) |>
+  rename(SconfitteTrasferta = H, VittorieTrasferta = A, Pareggi = P, Team = AwayTeam)
+
+teamsStatsA = teamsStatsA[, c(1,4,3,2)]
+
+#STATISTICHE TOTALI
+teamsStats = cbind(teamsStatsH, teamsStatsA)
+teamsStats |> 
+  mutate(Vittorie = VittorieCasa + VittorieTrasferta) |>
+  mutate(Sconfitte = SconfitteCasa + SconfitteTrasferta) |> 
+  select(-c(Team...5)) 
+    
+#PUNTI, PARTITE GIOCATE E PUNTI PER PARTITA
+
+#pointsFinal = points |> select(-c(A,H,P))
+
+#pointsFinal
+```
+
+
+Domande
+
+1. Ci sono squadre con differenze importanti tra casa e trasferta?
+2. Le squadre più blasonate sono sempre risutate le più vincenti?
+3. Ci sono state squadre "rivelazione" di una stagione? Squadre che in un certo anno hanno sorpreso particolarmente
+
+
+
+
+
+
