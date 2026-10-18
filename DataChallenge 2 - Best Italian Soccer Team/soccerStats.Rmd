@@ -73,7 +73,7 @@ Scenari possibili:
 + FTHG > FTAG -> vittoria in casa 
 + FTHG < FTAG -> vittoria in trasferta
 
-```{r echo=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 library(tidyr)
 library(dplyr)
 ```
@@ -86,11 +86,13 @@ soccerStatsDF =
   soccerStatsDF |>
     mutate(matchOutcome = if_else(soccerStatsDF$FTHG > soccerStatsDF$FTAG, 
                                   "H", 
-                                  if_else(soccerStatsDF$FTHG == soccerStatsDF$FTAG, "P", "A")))
-soccerStatsDF
+                                  if_else(soccerStatsDF$FTHG == soccerStatsDF$FTAG, "P", "A"))) |>
+    drop_na()
+    
+soccerStatsDF |> head(10)
 ```
 
-Successivamente creo un nuovo dataframe con le informazioni ottenute dal primo: per ogni squadra si vuole calcolare il **numero di partite**, il **numero** di pareggi, sconfitte e vittorie, il **punteggio** ottenuto (con le normali regole dei punteggi calcistici) e il numero medio di **punti a partita**.
+Successivamente creo un nuovo dataframe con le informazioni ottenute dal primo: per ogni squadra si vuole calcolare il **numero di partite**, il **numero** di pareggi, sconfitte e vittorie, il **punteggio** ottenuto (con le normali regole dei punteggi calcistici) e il numero di **punti a partita**.
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -99,36 +101,73 @@ teamsStatsH = soccerStatsDF |>
   group_by(HomeTeam) |> 
   count(matchOutcome) |>
   pivot_wider(names_from = matchOutcome, values_from = n) |>
-  rename(VittorieCasa = H, SconfitteCasa = A, Pareggi = P, Team = HomeTeam)
+  rename(VittorieCasa = H, SconfitteCasa = A, PareggiCasa = P, Team = HomeTeam)
 
 #VITTORIE, SCONFITTE, PAREGGI per ogni squadra IN TRASFERTA
 teamsStatsA = soccerStatsDF |> 
   group_by(AwayTeam) |> 
   count(matchOutcome) |>
   pivot_wider(names_from = matchOutcome, values_from = n) |>
-  rename(SconfitteTrasferta = H, VittorieTrasferta = A, Pareggi = P, Team = AwayTeam)
+  rename(SconfitteTrasferta = H, VittorieTrasferta = A, PareggiTrasferta = P, Team = AwayTeam)
 
 teamsStatsA = teamsStatsA[, c(1,4,3,2)]
 
 #STATISTICHE TOTALI
-teamsStats = cbind(teamsStatsH, teamsStatsA)
-teamsStats |> 
-  mutate(Vittorie = VittorieCasa + VittorieTrasferta) |>
-  mutate(Sconfitte = SconfitteCasa + SconfitteTrasferta) |> 
-  select(-c(Team...5)) 
-    
+teamsStats = inner_join(teamsStatsA, teamsStatsH) |> replace_na(list(VittorieTrasferta = 0))
+
 #PUNTI, PARTITE GIOCATE E PUNTI PER PARTITA
+teamsStats = teamsStats |>
+  mutate(NumeroPartite = sum(VittorieTrasferta, PareggiTrasferta, SconfitteTrasferta, SconfitteCasa, VittorieCasa, PareggiCasa)) |>
+  mutate(Punti = 3*(VittorieTrasferta + VittorieCasa) + PareggiTrasferta + PareggiCasa) |>
+  mutate(PuntiPerPartita = Punti/NumeroPartite)
 
-#pointsFinal = points |> select(-c(A,H,P))
+#RIORGANIZZAZIONE FINALE
+teamsStats = teamsStats |>
+  mutate(Vittorie = VittorieTrasferta + VittorieCasa) |>
+  mutate(Sconfitte = SconfitteTrasferta + SconfitteCasa) |>
+  mutate(Pareggi = PareggiTrasferta + PareggiCasa) |>
+  select(-c(2:7))
 
-#pointsFinal
+teamsStatsFinal = teamsStats[, c(1,3,2,5:7,4)]
+teamsStatsFinal
+
 ```
 
+Una volta concluso il calcolo delle statistiche, si vuole stabilire quale sia la **migliore** squadra di Serie A.
 
-Domande
+Per determinare il migliore si possono considerare due principali statistiche:
+
+1. La squadra che ha totalizzato più punti in totale
+2. La squadra con valore di punti per partita più alto
+
+Nel primo caso, per quanto indicativo, si va a favorire le squadre che hanno giocato **più** partite, in quanto hanno statisticamente più possibilità di vincere. Nel secondo caso invece si considera **l'incidenza** dei risultati sul numero di partite, andando possibilmente a valorizzare quelle squadre che hanno giocato un numero contenuto di partite ma ottenendo comunque dei discreti risultati.
+
+```{r message=FALSE, warning=FALSE}
+
+#Squadra che ha totalizzato il maggior numero di punti
+teamsStatsFinal |> 
+  select(-PuntiPerPartita) |>
+  arrange(desc(Punti)) |>
+  head(5)
+
+```
+```{r message=FALSE, warning=FALSE}
+
+#Squadra con il punteggio per partita più alto
+teamsStatsFinal |> 
+  select(-c(Vittorie, Sconfitte,Pareggi)) |>
+  arrange(desc(PuntiPerPartita)) |>
+  head(5)
+```
+
+In entrambe le casistiche si può vedere come la squadra vincente sia una squadra che ha giocato un alto numero di partite con un alto numero di vittorie.
+
+Entrambe le statistiche quindi confermano il pensiero "ovvio", che attribuisce la squadra migliore a quella che ha vinto di più. Non ci sono stati casi di squadre particolarmente vincenti seppure giocando poche partite (quantomento non nelle prime 5 posizioni).
+
+**Domande**
 
 1. Ci sono squadre con differenze importanti tra casa e trasferta?
-2. Le squadre più blasonate sono sempre risutate le più vincenti?
+2. C'è sempre una differenza marcata tra le squadra "storiche" del Nord e le meno conosciute del Sud?
 3. Ci sono state squadre "rivelazione" di una stagione? Squadre che in un certo anno hanno sorpreso particolarmente
 
 
