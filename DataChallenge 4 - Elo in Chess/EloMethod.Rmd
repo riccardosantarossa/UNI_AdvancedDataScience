@@ -1,0 +1,244 @@
+---
+title: "EloMethod"
+author: "Riccardo Santarossa"
+date: "2026-10-23"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+#INIZIALIZZAZIONE LIBRERIE
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+#DataFrame
+chessDataFrame = read.csv("data.csv")
+```
+
+**Punto 1**
+
+Per comprendere se effettivamente iniziare la partita con il bianco comporti un vantaggio, costruisco un DataFrame contenente il numero di vittorie ottenute dai giocatori con entrambi i colori. Per ottenere le vittorie con i due colori è necessario filtrare le righe con lo score uguale a 1 (vittoria con il bianco) e quelle con lo score uguale a zero (vittoria con il nero). Si omettono i pareggi in quanto non costituiscono interesse per questo punto.
+
+Per visualizzare a colpo d'occhio le vittorie con i differenti colori è stato utilizzato un grafico a barre con due differenti colori.
+```{r warning=FALSE, message=FALSE}
+#White Victories vs Black vivtories
+WhiteVictories = chessDataFrame |> filter(Score == 1.0) |> nrow()
+BlackVictories = chessDataFrame |> filter(Score == 0) |> nrow()
+
+victories = data.frame("Colour" = c("White", "Black"), "Victories" = c(WhiteVictories, BlackVictories))
+
+#Plot delle Vittorie a confronto
+ggplot(data = victories) + 
+  geom_bar(stat = "identity", mapping = aes(x = Colour, y = Victories, fill = Colour)) +
+  labs(title = "Victories by Colour")
+  
+```
+
+Possiamo notare come il numero di vittorie con il bianco sia più alto, determinando quindi un vantaggio per il giocatore che inizia con la prima mossa, quindi il *first-mover advantage* è effettivamente presente.
+
+
+**Punto 2**
+
+Si vuole ora investigare la performance dei giocatori basandosi sul loro  *point rating* ovvero sulla somma dei punteggi ottenuti dalle vittorie e dai pareggi, assegnando 1 punto per ogni vittoria e 0.5 per ogni pareggio.
+
+Per una migliore comprensione, viene posizionata una linea sul valore *medio* del Point Rating
+```{r warning=FALSE, message=FALSE}
+
+#Calcolo del POINT RATING di ogni giocatore
+
+#copio il DF per applicare la trasformazione sul punteggio del nero
+transformedDF = chessDataFrame |> mutate(Score = 1-Score)
+
+getPointRating = function(player){
+  pointScoreWhitePlayer = chessDataFrame |> filter(White == player) |> pull(Score) |> sum()
+  pointScoreBlackPlayer = transformedDF |> filter(Black == player) |> pull(Score) |> sum()
+  return(pointScoreWhitePlayer + pointScoreBlackPlayer)
+}
+
+players = unique(append(chessDataFrame$White, chessDataFrame$Black))
+
+playerRatings = sapply(players, getPointRating)
+
+#Dataframe per visualizzare meglio e plottare
+pointRatings = data.frame("Player" = players, "Point_Rating" = playerRatings)
+
+#Plotting del PointRating
+
+#PointRating medio
+meanPR = mean(pointRatings$Point_Rating)
+meanPRLabel = paste0("Mean Point Rating = ", round(meanPR, 2))
+
+ggplot(data = pointRatings, aes(x = Point_Rating)) +
+  geom_histogram(binwidth = 1, colour = "#1874CD") +
+  geom_vline(xintercept = meanPR, color = "#CD2626", linetype = "dashed") + 
+  labs(title = "Distribution of Point Rating", x = "Point rating", y = "Number of players")
+
+```
+
+**Punto 3**
+
+Per la dimostrazione, calcolo la variazione di Elo dei giocatori i e j:
+
+$$
+  \Delta R_{i,j} = K(s_{i,j} - \mu{i,j})
+$$
+$$
+  \Delta R_{j,i} = K(s_{j,i} - \mu{j,i})
+$$
+
+Sapendo che:
+
+$$
+ s_{i,j} + s_{j,i} = \mu_{i,j} + \mu_{j,i} = 1
+$$
+Ottengo:
+
+$$
+ \Delta R_{i,j} + \Delta R_{j,i} = K[(s_{i,j} + s_{j,i}) - (\mu{i,j} + \mu_{j,i})] = K(1-1) = 0
+$$
+
+
+**Punto 4**
+
+Per il calcolo dell'ELO, è necessario tenere conto delle variazioni dell'ELO dei vari giocatori, in quanto la formula di calcolo tiene conto dei punteggi di entrambi i giocatori partecipanti alla partita.
+
+Sfruttando la proprietà della somma dell'ELO, l'aggiornamento del punteggio si riduce quindi al calcolo di un delta, derivante dal fatto che la somma dei punteggi del match vale 1. In questo modo posso calcolare la variazione e applicarla ai punteggi dei due giocatori.
+
+*(AI utilizzata per implementare l'ottimizzazione che sfrutta la proprietà di somma 0)*
+```{r warning=FALSE, message=FALSE}
+
+# Funzione per il calcolo dell'ELO di tutti i giocatori
+
+#Giocatori
+players = unique(c(chessDataFrame$White, chessDataFrame$Black))
+
+getEloRating = function(chessDataFrame, players) {
+
+  # Inizializzazione: tutti partono da ELO 0
+  playersElo = data.frame(Player = players,EloRating = 0)
+
+  # Scorro tutte le partite
+  for (i in seq_len(nrow(chessDataFrame))) {
+
+    whitePlayer = chessDataFrame$White[i]
+    blackPlayer = chessDataFrame$Black[i]
+    score = chessDataFrame$Score[i]
+
+    # Recupero gli ELO attuali
+    whiteElo = playersElo$EloRating[playersElo$Player == whitePlayer]
+    blackElo = playersElo$EloRating[playersElo$Player == blackPlayer]
+
+    # Calcolo dei punteggi attesi
+    expectedWhiteScore = 1 / (1 + 10^((blackElo - whiteElo) / 400))
+    expectedBlackScore = 1 - expectedWhiteScore
+
+    # Calcolo della variazione dell'ELO
+    delta = 40 * (score - expectedWhiteScore)
+
+    # Aggiornamento degli ELO
+    playersElo$EloRating[playersElo$Player == whitePlayer] = whiteElo + delta
+    playersElo$EloRating[playersElo$Player == blackPlayer] = blackElo - delta
+  }
+
+  return(playersElo)
+}
+
+#Aggiorno il dataframe con gli elo finali
+playersElo = getEloRating(chessDataFrame, players)
+
+```
+
+Per la visualizzazione della distribuzione dell'ELO, utilizzo un istogramma per visualizzare al meglio la distribuzione dei punteggi relativi alla "forza" dei giocatori. Viene inoltre aggiunta una linea verticale in corrispondenza dello 0, punto di partenza per l'ELO per tutti i giocatori.
+
+```{r warning=FALSE, message=FALSE}
+
+#Plot dei punteggi ELO
+ggplot(data = playersElo, aes(x = EloRating)) +
+  geom_histogram(binwidth = 1, colour = "#1874CD") +
+  geom_vline(xintercept = 0, color = "#CD2626", linetype = "dashed") + 
+  labs(title = "Distribution of ELO", x = "Elo rating", y = "Number of players")
+```
+
+**Punto 5**
+
+Si vuole ora mettere in relazione il Point Rating con l'ELO: per fare ciò utilizzo uno scatter plot, in modo da poter avere a colpo d'occhio il confronto tra le due variabili, appunto quella relativa al point rating e quella relativa all'ELO rating.
+
+```{r warning=FALSE, message=FALSE}
+
+#Unisco in un unico dataframe i giocatori con elo e point rating
+scoringDataFrame = inner_join(pointRatings, playersElo)
+
+#Scatterplot
+ggplot(scoringDataFrame, aes(x = Point_Rating, y = EloRating)) +
+  geom_point(alpha = 0.7, colour = "#1874CD") +
+  labs(title = "Point Rating against Elo Rating", x ="Point Rating Score", y = "Elo Rating Score")
+
+#Calcolo di correlazione con coefficiente di Pearson
+print(cor(scoringDataFrame$Point_Rating, scoringDataFrame$EloRating))
+
+```
+Il valore del coefficiente di Pearson, 0.694 suggerisce una correlazione, anche se non estremamente forte, tra le due variabili. Per verificare ulteriormente questa ipotesi, si estraggono i primi 10 giocatori per ELO e i primi 10 per Point Rating, per vedere se sono gli stessi.
+
+```{r warning=FALSE, message=FALSE}
+
+#Estrazione dei top 10
+top10ELO = scoringDataFrame |> arrange(desc(EloRating)) |> head(10)
+top10Point = scoringDataFrame |> arrange(desc(Point_Rating)) |> head(10)
+
+top10ELO
+top10Point
+
+#Intersezione
+top10 = intersect(top10ELO, top10Point)
+
+top10
+
+```
+Calcolando l'intersezione si nota come non ci siano giocatori presenti in entrambe le top 10, ma comunque, guardando gli ordinamenti, a giocatori con Point Rating alto corrispondono generalmente giocatori con ELO Rating alto, confermando ciò che viene mostrato dal coefficiente di Pearson, di valore comunque superiore a 0.5
+
+**Punto 6**
+
+Infine, per vedere se il numero di partite influisce effettivamente su ELO e Point Rating, si calcola il numero di partite giocate da ogni giocatore e lo si associa prima al suo punteggio Elo e poi al suo Point Rating, per comprendere se vi sono correlazioni. Per avvalorare ancora l'analisi, si calcolano due volte i coefficienti di Pearson, prima tra partite ed Elo e poi tra partite e Point Rating.
+
+```{r warning=FALSE, message=FALSE}
+
+#Calcolo il numero di partite per ogni giocatore, poi faccio 2 join per avere un dataframe che contiene giocatore, numero partite e i due punteggi
+countMatches = function(player){
+  sum(chessDataFrame$White == player | chessDataFrame$Black == player)
+}  
+
+playerGames = data.frame("Player" = players, "Games" = sapply(players, countMatches))
+finalPlayerStats = inner_join(playerGames, scoringDataFrame)
+
+#Scatter plot per la visualizzazione
+ggplot(data = finalPlayerStats, aes(x = Games, y = Point_Rating)) +
+  geom_point(alpha = 0.7, colour = "#1874CD") +
+  labs(title = "Number of games and Point Rating", x ="Number of Games", y = "Point Rating Score")
+
+ggplot(data = finalPlayerStats, aes(x = Games, y = EloRating)) +
+  geom_point(alpha = 0.7, colour = "#CD2626") +
+  labs(title = "Number of games and Elo Rating", x ="Number of Games", y = "Elo Rating Score")
+
+
+#Calcolo correlazioni
+gamesElo = cor(finalPlayerStats$Games, finalPlayerStats$EloRating)
+gamesPointRating = cor(finalPlayerStats$Games, finalPlayerStats$Point_Rating)
+
+gamesElo
+gamesPointRating
+
+```
+La correlazione tra numero di paartite e Point Rating è positiva e quasi totale: ciò è però ovvio in quanto all'aumentare del numero di partite giocate, aumenta la possibilità di vincere o pareggiare e di conseguenza la possibilità di avere un point rating alto.
+
+Per l'ELO invece, la correlazione è comunque positiva e maggiore di 0.5, ma non elevata quanto quella con il point rating.
+
+
+
+
+
