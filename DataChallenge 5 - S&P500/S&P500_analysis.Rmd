@@ -1,0 +1,97 @@
+---
+title: "S&P500 Concentration"
+author: "Riccardo Santarossa"
+date: "2026-10-23"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(tidyquant)
+library(ineq)
+library(ggplot2)
+```
+
+
+
+```{r warning=FALSE, message=FALSE}
+
+#raccolta dati
+spData = tq_index("S&P500")
+write_csv(spData, "data/sp500Data.csv")
+
+```
+
+**Punto 1**
+
+```{r warning=FALSE, message=FALSE}
+
+#dataframe di partenza
+spDF = read_csv("data/sp500Data.csv")
+
+#aziende e relativi pesi
+spWeights= spDF |>
+  select(company, weight, shares_held) |>
+  arrange(desc(weight))
+
+#statistiche sui pesi ???
+
+
+```
+
+**Punto 2**
+
+Si vuole capire quanto dell'indice sia detenuto dalle principali aziende coinvolte: prima si calcola il coinvolgimento di ogni azienda in termini di peso (in percentuale), e succesivamente in termini di azioni detenute sul totale delle azioni dell'indice.
+
+```{r warning=FALSE, message=FALSE}
+
+#percentuale
+top10CompaniesWeights = spWeights |> 
+  select(weight) |>
+  head(10) |> 
+  sum()
+top10CompaniesPercentage = top10CompaniesWeights * 100
+
+top10CompaniesPercentage
+
+#sul numero di azioni
+totalShares = spWeights |> select(shares_held) |> sum()
+sharesTop10 = spWeights |> 
+  select(shares_held) |>
+  head(10) |> 
+  sum()
+top10CompaniesShares = sharesTop10 / totalShares * 100
+
+top10CompaniesShares
+
+```
+
+Si può notare come le 10 principali compagnie compongano il 37,95% del peso totale dell'indice S&P500 con il 13.81% di azioni detenute sul totale.
+
+**Punti 3 e 4**
+
+```{r warning=FALSE, message=FALSE}
+
+#calcolo del GiniIndex e rappresentazione della curva di Lorentz
+LCData = Lc(spWeights$weight)
+dfLorentz = data.frame(p = LCData$p, L = LCData$L)
+
+#plot della Lorentz Curve
+ggplot(dfLorentz, aes(x = p, y = L)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+  geom_line(linewidth = 1, colour = "#1874CD") +
+  labs(title = "Concentration of S&P500 weights", x = "Percentage of total companies", y = "Share of total weight")
+
+#calcolo del Gini Index
+giniIindex = Gini(spWeights$weight)
+giniIindex
+```
+
+
+
