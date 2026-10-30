@@ -30,6 +30,8 @@ write_csv(spData, "data/sp500Data.csv")
 
 **Punto 1**
 
+Per comprendere come sono distribuiti e quanto sono variegati i pesi delle singole aziende all'interno dell'indice, si calcolano prima le principali statistiche descrittive, quindi media, mediana, deviazione standard, massimo e minimo. Successivamente, con l'uso di un istogramma, si vuole visualizzare la distribuzione delle aziende, quindi comprendere quante aziende hanno un peso significativo, e quante invece un peso molto contenuto.
+
 ```{r warning=FALSE, message=FALSE}
 
 #dataframe di partenza
@@ -40,10 +42,20 @@ spWeights= spDF |>
   select(company, weight, shares_held) |>
   arrange(desc(weight))
 
-#statistiche sui pesi ???
+#statistiche sui pesi dal dataframe
+stats = spDF |> summarise(mean = mean(weight), median = median(weight), max = max(weight), min = min(weight), stdDev = sd(weight))
+stats
 
-
+#istogramma con pesi e aziende
+ggplot(spDF, aes(x = weight)) +
+  geom_histogram(colour = "#1874CD") +
+  geom_vline(aes(xintercept = stats$mean, colour = "Mean"), linetype = "dashed") +
+  scale_colour_manual(name = "Statistics", values = c("Mean" = "#CD2626")) +
+  labs(title = "Distribution of Weight in the S&P500 index", x = "weight in the index", y = "Number of companies")
 ```
+
+Dall'istogramma si può notare come la maggioranza delle aziende contenute nell'indice abbiano un peso, in termini di percentuale sul totale, molto contenuto. La *media* infatti, calcolata in precedenza, è vicina allo zero, ciò indica che il peso medio in termini percentuali è dello 0.2%. Sono presenti comunque aziende con un valore percentuale significativamente più alto, il massimo infatti si attesta a 7.77%.
+
 
 **Punto 2**
 
@@ -86,12 +98,18 @@ dfLorentz = data.frame(p = LCData$p, L = LCData$L)
 ggplot(dfLorentz, aes(x = p, y = L)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
   geom_line(linewidth = 1, colour = "#1874CD") +
-  labs(title = "Concentration of S&P500 weights", x = "Percentage of total companies", y = "Share of total weight")
-
-#calcolo del Gini Index
-giniIindex = Gini(spWeights$weight)
-giniIindex
+  labs(title = "Concentration of S&P500 weights", x = "Share of companies", y = "Share of total weight")
 ```
 
+Dal grafico della curva di Lorentz si osserva come il 50% delle aziende detengano meno del 25% del peso totale: ciò dimostra come la maggioranza del peso dell'indice sia dettata da un numero ristretto di aziende, come già mostrato al punto 2. Per arrivare al 50% è infatti necessario combinare circa il 90% delle aziende, ad indicare come la concentrazione dei pesi sia molto forte intorno alle prime aziende.
 
+Calcolo del Gini coefficient:
 
+```{r warning=FALSE, message=FALSE}
+
+#calcolo del Gini coefficient
+giniCoeff = Gini(spWeights$weight)
+giniCoeff
+```
+
+Il valore del Gini Coefficient conferma ulteriormente quanto detto finora: il suo valore di 0.71 dimostra come ci sia un'inequalità elevata nella distribuzione dei pesi delle aziende. 
