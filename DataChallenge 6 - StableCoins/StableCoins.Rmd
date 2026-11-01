@@ -1,0 +1,119 @@
+---
+title: "StableCoins"
+author: "Riccardo Santarossa"
+date: "2026-11-01"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+
+#inizializzazione librerie e chiavi API
+library(tidyverse)
+library(httr2)
+library(ggplot2)
+
+#etherscan API key
+etherscanKey = Sys.getenv("ETHERSCAN_API_KEY")
+
+```
+
+Per ottenere ed utilizzare i dati relativi alle Stablecoin di Ethereum è necessario recuperare i dati delle transazioni con l'utilizzo di Etherscan, tramite gli indirizzi dei tre *smart contracts* di Ethereum. Per comodità di utilizzo sfrutto la funzione creata a lezione, sostituendo il parametro **address** con il parametro **contractAddress** necessario per ottenere le transazioni ERC-20 filtrate per ciascuna delle stablecoin usando il relativo Smart Contract.
+
+```{r message=FALSE, warning=FALSE}
+
+#esecuzione delle Request per ottenere le transazioni
+#utilizzando tokentx come azione
+getTransactions <- function(address) {
+  page = 1
+  transactions = list()
+  repeat {
+    response <- request("https://api.etherscan.io/v2/api") |>
+      req_url_query(
+        chainid = 1,
+        module = "account",
+        action = "tokentx",
+        contractAddress = address,
+        startblock = 0,
+        endblock = 99999999,
+        page = page,
+        offset = 1000,
+        sort = "asc",
+        apikey = etherscanKey) |>
+      req_perform() |>
+      resp_body_json(simplifyVector = TRUE)
+
+    if (is.character(response$result)) {
+      break
+    }
+    page_data = response$result |>
+      as_tibble()
+    transactions[[page]] = page_data
+    if (nrow(page_data) < 1000) {
+      break
+    }
+    page = page + 1
+  }
+    bind_rows(transactions) |>
+    transmute(
+      block = as.numeric(blockNumber),
+      time = as.POSIXct(as.numeric(timeStamp),origin = "1970-01-01",tz = "UTC"),
+      hash,
+      from,
+      to,
+      value_eth = as.numeric(value) / 1e18,
+      gas_used = as.numeric(gasUsed),
+      gas_price_gwei = as.numeric(gasPrice) / 1e9,
+      success = statusRep == "1")
+}
+```
+
+utilizzo la funzione per ottenere i dati sulle transazioni di ognuna delle 3 stableCoins, successivamente unisco i risultati in un unico DataFrame in modo da poterli analizzare e utilizzare successivamente.
+
+```{r message=FALSE, warning=FALSE}
+
+#ottengo i dati delle diverse stablecoins
+usdtData = getTransactions("0xdac17f958d2ee523a2206206994597c13d831ec7")
+write.csv(usdtData, "data/USDT.csv")
+
+usdcData = getTransactions("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")
+write.csv(usdcData, "data/USDC.csv")
+
+daiData = getTransactions("0x6b175474e89094c44da98b954eedeac495271d0f")
+write.csv(usdcData, "data/DAI.csv")
+
+```
+
+Per calcolare *size* e *volume* delle transazioni, posso utilizzare diversi parametri: 
+
+- per la size si possono sfruttare il valore in ETH oppure il *gas* utilizzato ovvero la fee pagata per quella transazione
+- per il volume invece utilizzo il numero di transazioni per ciascuna delle coins
+
+```{r message=FALSE, warning=FALSE}
+
+#dataframe che contiene i dati relativi a tutte e tre le stablecoins
+usdt = read.csv("data/USDT.csv")
+usdtDataFrame = usdt |>
+  mutate(coin = "USDT") |>
+  select(-c("hash", "X", "from", "to"))
+
+usdc = read.csv("data/USDC.csv")
+usdcDataFrame = usdc |>
+  mutate(coin = "USDC") |>
+  select(-c("hash", "X", "from", "to"))
+
+dai = read.csv("data/DAI.csv")
+daiDataFrame = dai |>
+  mutate(coin = "DAI") |>
+  select(-c("hash", "X", "from", "to"))
+
+```
+
+
+
+
