@@ -23,7 +23,7 @@ etherscanKey = Sys.getenv("ETHERSCAN_API_KEY")
 
 ```
 
-Per ottenere ed utilizzare i dati relativi alle Stablecoin di Ethereum è necessario recuperare i dati delle transazioni con l'utilizzo di Etherscan, tramite gli indirizzi dei tre *smart contracts* di Ethereum. Per comodità di utilizzo sfrutto la funzione creata a lezione, sostituendo il parametro **address** con il parametro **contractAddress** necessario per ottenere le transazioni ERC-20 filtrate per ciascuna delle stablecoin usando il relativo Smart Contract.
+Per ottenere ed utilizzare i dati relativi alle Stablecoin di Ethereum è necessario recuperare i dati delle transazioni con l'utilizzo di Etherscan, tramite gli indirizzi dei tre *smart contracts* di Ethereum. Per comodità di utilizzo sfrutto la funzione creata a lezione, sostituendo il parametro **address** con il parametro **contractAddress** necessario per ottenere le transazioni ERC-20 filtrate per ciascuna delle stablecoin usando il relativo Smart Contract e l'azione *tokentx*.
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -73,7 +73,7 @@ getTransactions <- function(address) {
 }
 ```
 
-utilizzo la funzione per ottenere i dati sulle transazioni di ognuna delle 3 stableCoins, successivamente unisco i risultati in un unico DataFrame in modo da poterli analizzare e utilizzare successivamente.
+Utilizzo la funzione per ottenere i dati sulle transazioni di ognuna delle 3 stableCoins, successivamente unisco i risultati in un unico DataFrame in modo da poterli analizzare e utilizzare successivamente.
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -85,18 +85,18 @@ usdcData = getTransactions("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")
 write.csv(usdcData, "data/USDC.csv")
 
 daiData = getTransactions("0x6b175474e89094c44da98b954eedeac495271d0f")
-write.csv(usdcData, "data/DAI.csv")
+write.csv(daiData, "data/DAI.csv")
 
 ```
 
 Per calcolare *size* e *volume* delle transazioni, posso utilizzare diversi parametri: 
 
-- per la size si possono sfruttare il valore in ETH oppure il *gas* utilizzato ovvero la fee pagata per quella transazione
-- per il volume invece utilizzo il numero di transazioni per ciascuna delle coins
+- per la size si può sfruttare il valore in ETH per vedere in che modo le transazioni di ciascuna coin sono distribuite, con un box plot per una rappresentazione immediata.
+- per il volume invece utilizzo il numero di transazioni per ciascuna delle coins al variare del tempo unito alla somma di denaro, in ETH, scambiato in tutto l'intervallo rappresentato dai dati.
 
 ```{r message=FALSE, warning=FALSE}
 
-#dataframe che contiene i dati relativi a tutte e tre le stablecoins
+#dataframe che contengono i dati relativi a tutte e tre le stablecoins
 usdt = read.csv("data/USDT.csv")
 usdtDataFrame = usdt |>
   mutate(coin = "USDT") |>
@@ -112,8 +112,58 @@ daiDataFrame = dai |>
   mutate(coin = "DAI") |>
   select(-c("hash", "X", "from", "to"))
 
+coinsDF = rbind(usdtDataFrame, usdcDataFrame, daiDataFrame)
+
+#statistiche sulle transazioni per ciascuna coin
+coinsDF |>
+  group_by(coin) |>
+  summarize(median = median(value_eth), maximum = max(value_eth), minimum = min(value_eth))
+
+#plot di visualizzazione della size delle transazioni, in termini di valore in ETH 
+ggplot(coinsDF) +
+  geom_boxplot(aes(y = value_eth, x = coin, fill = coin)) +
+  scale_y_log10() +
+  scale_fill_manual(values = c("#FEBE44", "#2775CA", "#50AF95")) +
+  labs(title = "Size of Transactions in ETH", x = "Coin Type", y = "ETH Value") +
+  theme_minimal()
+
 ```
 
+Dal boxplot si può notare come la mediana della coin DAI sia sostanzialmente più elevata rispetto alle altre due, come confermato dalle statisitiche calcolate in precedenza. Ciò fa capire come le transazioni di DAI siano concentrate in un range più elevato denotato da mediana ed ampiezza del box più in alto lungo l'asse Y. 
+
+Infine, per valutare il volume delle transazioni, può essere utile utilizzato un grafico a dispersione che mostra il numero di transazioni nel tempo, per comprendere quale tra le tre coins ha un volume maggiore relativo ai giorni, affiancato al valore totale di ETH movimentati da ciascuna coin.
+
+Per ottenere le date, elimino il timestamp orario mantenendo soltanto giorno, mese e anno, per rendere più semplice e comprensibile il grafico e senza perdere informazione al fine di determinare il volume, in quanto si è interessati a tutto il periodo di cui si hanno a disposizione i dati. 
+
+```{r message=FALSE, warning=FALSE}
+
+#calcolo della somma totale in ETH per ciascuna coin
+coinsDF |>
+  group_by(coin) |>
+  summarise(total = sum(value_eth))
+
+#plot del volume delle transazioni nel tempo
+coinsDF2 = coinsDF |> 
+  mutate(time = substr(time, 0, 10)) |>
+  mutate(time = as.Date(time))
+
+#raggruppo e filtro soltanto le transazioni con valore maggiore di 0
+groupedCoins = coinsDF2 |> 
+  filter(value_eth > 0) |>
+  group_by(coin, time) |>
+  summarise(totalOfDay = sum(value_eth))
+
+ggplot(groupedCoins) +
+  geom_point(aes(x = time, y = totalOfDay, color = coin)) +
+  scale_y_log10() +
+  scale_color_manual(values = c("#FEBE44", "#2775CA", "#50AF95")) +
+  labs(title = "Value of ETH transactions", x = "Time", y = "Amount moved") +
+  theme_minimal()
+```
+
+Dal grafico si può vedere come tutte le transazioni di USDC e USDT sono concentrate tra il 2018 e il 2019, con un valore di ETH significativamente minore rispetto alle transazioni di DAI. Il grafico conferma anche quanto calcolato in precedenza, aggiungendo un andamento temporale delle transazioni, per cercare eventuali sovrapposizioni.
+
+Si conferma quindi come USDC e USDT abbiano un volume di trasferimento di valuta inferiore, dato il loro utilizzo per micro-transazioni, a differenza di DAI che viene utilizzata per transazioni di entità maggiore, stile "corporate".
 
 
 
