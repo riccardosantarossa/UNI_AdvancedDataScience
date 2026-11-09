@@ -1,0 +1,110 @@
+---
+title: "Life Expectancy in Continents"
+author: "Riccardo Santarossa"
+date: "2026-11-09"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+In questo scenario, la Life Expectancy di un paese del mondo è calcolata come la *media* delle lunghezze delle vite degli abitanti di quel continente: per rendere coerente il calcolo anche a livello di continente, non basta fare la "media delle medie", in quanto andremmo a trattare allo stesso modo paesi con un numero di abitanti molto diverso.
+
+L'idea è quindi quella di utilizzare gli abitanti del paese e del continente come **pesi** di una media ponderata. Per ogni paese di un dato continente si eseguirà quindi prima la moltiplicazione delle life expectancies di ognuno per il numero degli abitanti e poi si dividerà il tutto per il numero totale di abitanti del continente.
+
+$$
+Life Expectancy_{continente} = \dfrac{\sum_{paesi \in continente}^{} (LifeExpectancy_{paese} * popolazione_{paese})}{popolazione_{continente}}
+$$
+
+Ciascuno di questi calcoli verrà poi ripetuto per ogni intervallo temporale, per poter poi visualizzare graficamente la variazione dell'aspettativa di vita per ogni continente e successivamente per tutto il mondo.
+
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(gapminder)
+library(purrr)
+```
+
+```{r message=FALSE, warning=FALSE}
+
+#funzione che calcola l'aspettativa di vita di un continente
+lifeExpectContinent = function(continente, anno){
+  gapminder |> 
+    filter(continent == continente, year == anno) |>
+    summarise(lifeExpWeighted = weighted.mean(lifeExp, pop)) |>
+    pull(lifeExpWeighted)
+}
+
+#mappo la funzione per ogni coppia (continente, anno)
+years = unique(gapminder$year)
+continents = unique(gapminder$continent)
+
+#map con pmap per gestire la coppia (continente, anno) in quanto ci sono più anni che continenti 
+#il normale map2 richiederebbe che le due variabili siano della stessa lunghezza
+continentsLifeExp = expand.grid(continente = continents, anno = years)
+continentsLifeExp = continentsLifeExp |> 
+  mutate(weightedLifeExp = pmap_dbl(list(continente, anno), lifeExpectContinent)) |> 
+  left_join(
+    gapminder |> 
+      group_by(continent, year) |> 
+      summarise(totalPopulation = sum(pop), .groups = "drop"), 
+    by = c("continente" = "continent", "anno" = "year"))
+  
+continentsLifeExp |> head(15)
+```
+
+Una volta calcolata la LifeExpectancy *pesata* la si può rappresentare in un grafico a linea per comprenderne l'andamento nel tempo
+per ciascuno dei 5 continenti
+
+```{r message=FALSE, warning=FALSE}
+
+#plot dell'aspettativa di vita dei continenti nel tempo
+ggplot(continentsLifeExp, aes(x = anno, y = weightedLifeExp, color = continente)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = seq(1950, 2010, by = 5)) +
+  labs(title = "Life Expectancy over Time (per continent)", x = "Year", y = "Life Expectancy (weighted)") +
+  theme_minimal()
+
+```
+
+Per calcolare invece la popolazione del mondo, applico la stessa filosofia utilizzata per i continenti, sfruttando però come popolazione totale quella ottenuta sommando la popolazione dei continenti in ogni anno (popolazione mondiale di quell'anno). 
+
+La funzione utilizzata sarà la stessa, ovvero la *weighted mean*
+
+```{r warning=FALSE, message=FALSE}
+
+#funzione che calcola la weighted life expectancy del mondo dato l'anno
+worldLifeExp = function(annoTarget){
+  continentsLifeExp |>
+    filter(anno == annoTarget) |>
+    summarise(worldLifeExp = weighted.mean(weightedLifeExp, totalPopulation)) |>
+    pull(worldLifeExp)
+}
+
+#applico la funzione agli anni
+lifeExpectWorld = data.frame(continente = "world", anni = years)
+lifeExpectWorld = lifeExpectWorld |>
+  mutate(worldLifeExpectancy = map_dbl(anni, worldLifeExp))
+
+lifeExpectWorld
+```
+
+Concludo utilizzando lo stesso grafico usato in precedenza, ma sulla base del nuovo DataFrame riguardante tutto il mondo
+
+```{r warning=FALSE,  message=FALSE}
+
+#plot dell'aspettativa di vita mondiale
+ggplot(lifeExpectWorld, aes(x = anni, y = worldLifeExpectancy)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = seq(1950, 2010, by = 5)) +
+  labs(title = "Life Expectancy over Time (entire world)", x = "Year", y = "Life Expectancy (weighted)") +
+  theme_minimal()
+```
+
+
