@@ -1,0 +1,2 @@
+"0","prices3 = read_csv(""data/prices3.csv"")"
+"0","prices3"

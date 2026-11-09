@@ -1,0 +1,7 @@
+"0","prices |>"
+"0","  group_by(asset) |>"
+"0","  summarise("
+"0","    first_date = min(date),"
+"0","    last_date = max(date),"
+"0","    observations = n()"
+"0","  )"

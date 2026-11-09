@@ -1,0 +1,3 @@
+"0",""
+"0","# add predictions to the model"
+"0","(sim1 <- add_predictions(sim1, mod1))"

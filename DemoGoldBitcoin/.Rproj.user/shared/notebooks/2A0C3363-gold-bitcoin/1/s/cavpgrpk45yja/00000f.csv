@@ -1,0 +1,4 @@
+"0","returns_rf <- returns |>"
+"0","  filter(asset %in% c(""Bitcoin"", ""Gold"")) |>"
+"0","  left_join(select(risk_free, date, rf_daily), join_by(date)) |>"
+"0","  mutate(excess_return = return - rf_daily)"

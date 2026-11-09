@@ -1,0 +1,7 @@
+"0","bitcoin <- bitcoin |>"
+"0","  arrange(timestamp) |>"
+"0","  mutate("
+"0","    return = close / lag(close) - 1"
+"0","  )"
+"0",""
+"0","bitcoin"

@@ -1,0 +1,3 @@
+"0",""
+"0","ggplot(daily, aes(date, n)) + "
+"0","  geom_line()"

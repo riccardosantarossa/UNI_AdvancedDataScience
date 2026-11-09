@@ -1,0 +1,2 @@
+"0","prices <- prices |>"
+"0","  select(asset, symbol, date, close)"

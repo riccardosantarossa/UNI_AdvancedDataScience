@@ -1,0 +1,8 @@
+"0","prices <- tq_get("
+"0","  assets$symbol,"
+"0","  from = start_date,"
+"0","  to = end_date"
+"0",") |>"
+"0","  left_join(assets, join_by(symbol))"
+"0",""
+"0","write_csv(prices, ""data/prices.csv"")"

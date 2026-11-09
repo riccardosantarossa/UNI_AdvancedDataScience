@@ -1,0 +1,109 @@
+---
+title: "What affects the number of daily flights?"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+
+Let's work with a dataset of the number of flights that leave NYC per day. We'll also use the `lubridate` package for dates and times manipulation. Let's get started by counting the number of flights per day and visualising it.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(modelr)
+library(nycflights13)
+library(lubridate)
+
+daily <- flights %>% 
+  mutate(date = make_date(year, month, day)) %>% 
+  group_by(date) %>% 
+  summarise(n = n())
+
+daily
+
+ggplot(daily, aes(date, n)) + 
+  geom_line()
+```
+
+### Day of week
+
+Understanding the long-term trend is challenging because there's a very strong **day-of-week effect** that dominates the subtler patterns. Let's start by looking at the distribution of flight numbers by day-of-week:
+
+```{r}
+daily <- daily %>% 
+  mutate(wday = wday(date, label = TRUE))
+daily
+
+ggplot(daily, aes(wday, n)) + 
+  geom_boxplot()
+
+```
+
+There are fewer flights on weekends because most travel is for business. The effect is particularly pronounced on Saturday: you might sometimes leave on Sunday for a Monday morning meeting, but it's very rare that you'd leave on Saturday as you'd much rather be at home with your family.
+
+Let's remove weekend days from the orginal plot showing the number of flights per date:
+
+```{r}
+ggplot(filter(daily, !(wday %in% c("Sat", "Sun"))), aes(date, n)) + 
+  geom_line() +
+  geom_smooth(se = FALSE, span = 0.20)
+```
+
+We see a clearer pattern here than before, with fewer flights at the beginning and end of the years, and more flights in the middle.
+
+Another way to remove this strong pattern is to use a model. First, we fit the model, and display its predictions overlaid on the original data (predictions are in fact the mean number of flights per week day):
+
+```{r}
+mod <- lm(n ~ wday, data = daily)
+
+grid <- daily %>% 
+  data_grid(wday) %>% 
+  add_predictions(mod, "n")
+grid 
+
+ggplot(daily, aes(wday, n)) + 
+  geom_boxplot() +
+  geom_point(data = grid, colour = "red", size = 4)
+```
+
+Next we compute and visualise the residuals:
+
+```{r}
+daily <- daily %>% 
+  add_residuals(mod)
+
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_line(colour = "grey50") + 
+  geom_smooth(se = FALSE, span = 0.20)
+
+```
+
+Note the change in the y-axis: now we are seeing the deviation from the expected number of flights, given the day of week. This plot is useful because now that **we've removed much of the large day-of-week effect**. In particular there are fewer flights in January (and December), and more in summer. There are some days with far fewer flights than expected and some days with far more flights:
+
+```{r}
+# less flights
+daily %>% 
+filter(resid < -100) %>%
+arrange(resid)
+
+```
+
+If you're familiar with American public holidays, you might spot New Year's day, July 4th, Thanksgiving and Christmas. There are some others that don't seem to correspond to public holidays. 
+
+In there a 9-11 effect?
+
+
+```{r}
+# 9-11 effect?
+daily %>% filter(date == "2013-09-11")
+```
+

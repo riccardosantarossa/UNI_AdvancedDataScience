@@ -1,0 +1,3 @@
+"0","daily <- daily %>% "
+"0","  mutate(wday = wday(date, label = TRUE))"
+"0","daily"

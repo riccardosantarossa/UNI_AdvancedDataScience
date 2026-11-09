@@ -1,0 +1,1123 @@
+---
+title: "Gold vs Bitcoin"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+```
+
+In this data challenge we want to compare Bitcoin and gold as financial assets from January 2017 until the current date. We investigate:
+
+- price evolution;
+- cumulative performance;
+- daily returns;
+- volatility;
+- risk-adjusted performance using the Sharpe ratio;
+- correlation between Bitcoin and gold;
+- correlation of both assets with the U.S. dollar.
+
+We will use:
+
+```text
+BTC-USD      Bitcoin in U.S. dollars
+GC=F         COMEX gold futures
+DX-Y.NYB     U.S. Dollar Index
+```
+
+An important qualification is that `GC=F` represents gold futures rather than physical spot gold. It is nevertheless a convenient long historical gold series available through Yahoo Finance. If the objective is to study an investable security instead, `GLD` could be substituted as a gold ETF proxy.
+
+## 1. Load the packages
+
+```{r}
+library(tidyquant)
+library(tidyverse)
+```
+
+`tidyquant` provides access to financial and economic data and integrates many quantitative-finance functions with tidy data.
+
+The tidyverse provides the tools for data manipulation and visualization.
+
+---
+
+## 2. Define the period and assets
+
+```{r}
+start_date <- as.Date("2017-01-01")
+end_date   <- Sys.Date()
+
+assets <- tibble(
+  symbol = c("BTC-USD", "GC=F", "DX-Y.NYB"),
+  asset  = c("Bitcoin", "Gold", "Dollar")
+)
+
+assets
+```
+
+`start_date` defines the beginning of the analysis.
+
+Using
+
+```r
+Sys.Date()
+```
+
+makes the analysis automatically extend to the day on which the script is executed.
+
+The `assets` tibble associates Yahoo Finance ticker symbols with more readable names.
+
+---
+
+# 3. Download the data
+
+```{r eval=FALSE}
+prices <- tq_get(
+  assets$symbol,
+  from = start_date,
+  to = end_date
+) |>
+  left_join(assets, join_by(symbol))
+
+write_csv(prices, "data/prices.csv")
+```
+
+```{r}
+prices <- read_csv("data/prices.csv")
+prices
+```
+
+
+`tq_get()` downloads historical prices from Yahoo Finance. By default it retrieves variables such as:
+
+```text
+date
+open
+high
+low
+close
+volume
+adjusted
+```
+
+`left_join()` adds the more readable names `Bitcoin`, `Gold`, and `Dollar`.
+
+We will use the closing price:
+
+```{r}
+prices <- prices |>
+  select(asset, symbol, date, close)
+```
+
+For these assets, using `close` gives us a simple common definition of the daily market price.
+
+---
+
+# 4. Inspect the data
+
+Before performing an analysis, always inspect the dataset.
+
+```{r}
+prices |>
+  group_by(asset) |>
+  summarise(
+    first_date = min(date),
+    last_date = max(date),
+    observations = n()
+  )
+```
+
+This tells us:
+
+- when each series begins;
+- when its latest observation occurs;
+- how many observations are available.
+
+We should expect Bitcoin to contain more observations because Bitcoin trades seven days per week.
+
+Gold and the Dollar Index trade primarily on business days.
+
+This difference is important.
+
+---
+
+# 5. Plot the original prices
+
+The three series have very different scales, so a faceted plot is appropriate:
+
+```{r}
+prices |>
+  ggplot(aes(x = date, y = close)) +
+  geom_line() +
+  facet_wrap(
+    ~ asset,
+    scales = "free_y",
+    ncol = 1
+  ) +
+  labs(
+    title = "Bitcoin, Gold and the U.S. Dollar Index",
+    subtitle = "January 2017 to today",
+    x = NULL,
+    y = NULL
+  )
+```
+
+`facet_wrap()` creates one plot for each asset.
+
+The argument
+
+```r
+scales = "free_y"
+```
+
+allows every asset to have its own vertical scale.
+
+Without it, the enormous difference between Bitcoin and the other series would make the graph difficult to interpret.
+
+---
+
+# 6. Normalize prices
+
+Raw prices cannot be directly compared.
+
+One bitcoin, one ounce of gold, and one unit of the Dollar Index have completely different units.
+
+A better comparison is to set every asset equal to 100 at the beginning.
+
+First, we align the prices on dates available for all three assets:
+
+```{r}
+common_prices <- prices |>
+  select(date, asset, close) |>
+  pivot_wider(
+    names_from = asset,
+    values_from = close
+  ) |>
+  drop_na()
+```
+
+`pivot_wider()` creates one column for each asset.
+
+`drop_na()` keeps only dates on which Bitcoin, gold and the Dollar Index all have observations.
+
+This creates a common trading calendar.
+
+Now return to long format:
+
+```{r}
+common_prices_long <- common_prices |>
+  pivot_longer(
+    cols = c(Bitcoin, Gold, Dollar),
+    names_to = "asset",
+    values_to = "price"
+  )
+```
+
+We can normalize each price series:
+
+```{r}
+indexed_prices <- common_prices_long |>
+  group_by(asset) |>
+  arrange(date) |>
+  mutate(
+    index = 100 * price / first(price)
+  ) |>
+  ungroup()
+```
+
+For every asset,
+
+```r
+100 * price / first(price)
+```
+
+sets the first observation equal to 100.
+
+For example:
+
+```text
+100     no change
+150     gain of 50%
+80      loss of 20%
+```
+
+Now plot Bitcoin and gold:
+
+```{r}
+indexed_prices |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  ggplot(aes(x = date, y = index, color = asset)) +
+  geom_line() +
+  labs(
+    title = "Bitcoin versus Gold",
+    subtitle = "Initial value = 100",
+    x = NULL,
+    y = "Index",
+    color = NULL
+  )
+```
+
+This graph compares investment growth rather than nominal prices.
+
+---
+
+# 7. Calculate daily returns
+
+Prices are useful for showing long-run evolution, but financial comparisons are normally based on returns.
+
+For each asset we calculate:
+
+\[
+r_t = \frac{P_t}{P_{t-1}} - 1
+\]
+
+In R:
+
+```{r}
+returns <- common_prices_long |>
+  group_by(asset) |>
+  arrange(date) |>
+  mutate(
+    return = price / lag(price) - 1
+  ) |>
+  filter(!is.na(return)) |>
+  ungroup()
+
+returns
+```
+
+`lag(price)` represents the previous common trading day's price.
+
+Thus:
+
+```r
+price / lag(price) - 1
+```
+
+calculates the percentage price change.
+
+For example:
+
+```text
+ 0.02    +2%
+-0.03    -3%
+```
+
+Notice that we aligned prices before calculating returns.
+
+This is deliberate. Bitcoin trades during weekends while gold and the Dollar Index generally do not. By first retaining common dates, returns for the three assets refer to comparable intervals.
+
+---
+
+# 8. Plot daily returns
+
+```{r}
+returns |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  ggplot(aes(x = date, y = return)) +
+  geom_line() +
+  facet_wrap(
+    ~ asset,
+    ncol = 1
+  ) +
+  labs(
+    title = "Daily Returns",
+    subtitle = "Bitcoin and Gold",
+    x = NULL,
+    y = "Return"
+  )
+```
+
+This plot immediately reveals an important characteristic that is much less obvious from the price chart: volatility.
+
+Large positive and negative movements appear as large deviations from zero.
+
+Bitcoin will generally display much larger fluctuations than gold.
+
+---
+
+# 9. Compare return distributions
+
+Another useful view is the distribution of returns:
+
+```{r}
+returns |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  ggplot(aes(x = return)) +
+  geom_histogram(
+    bins = 80
+  ) +
+  facet_wrap(
+    ~ asset,
+    scales = "free_y"
+  ) +
+  labs(
+    title = "Distribution of Daily Returns",
+    x = "Daily return",
+    y = "Frequency"
+  )
+```
+
+The histogram allows us to compare:
+
+- the center of the distributions;
+- their dispersion;
+- unusually large positive or negative returns;
+- differences in tail behavior.
+
+Bitcoin's distribution should be considerably wider if its daily volatility is larger.
+
+---
+
+# 10. Summary statistics
+
+We can calculate several basic return statistics:
+
+```{r}
+return_summary <- returns |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  group_by(asset) |>
+  summarise(
+    mean_daily = mean(return),
+    median_daily = median(return),
+    sd_daily = sd(return),
+    min_daily = min(return),
+    max_daily = max(return)
+  )
+
+return_summary
+```
+
+The statistics have the following meanings:
+
+```text
+mean_daily      average daily return
+median_daily    median daily return
+sd_daily        standard deviation of daily returns
+min_daily       worst daily return
+max_daily       best daily return
+```
+
+The standard deviation is our basic measure of volatility.
+
+---
+
+# 11. Total return and annualized return
+
+To compare long-term performance we can calculate total return:
+
+```{r}
+performance <- common_prices_long |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  group_by(asset) |>
+  arrange(date) |>
+  summarise(
+    start_date = first(date),
+    end_date = last(date),
+    start_price = first(price),
+    end_price = last(price),
+    total_return = end_price / start_price - 1
+  )
+
+performance
+```
+
+For example, a `total_return` of:
+
+```text
+4
+```
+
+means a return of 400%.
+
+It is often useful to express long-term growth as a compound annual growth rate, or CAGR.
+
+The compound annual growth rate (CAGR) measures the average annual growth rate of an investment or quantity over a given period, assuming that growth is compounded each year.
+
+It is calculated as:
+
+$$ \mathrm{CAGR}=\left(\frac{V_f}{V_i}\right)^{1/n}-1 $$
+
+where:
+
+- \\(V_i\\) is the initial value;
+- \\(V_f\\) is the final value;
+- \\(n\\) is the number of years.
+
+For example, if an investment grows from 100 to 150 over 5 years, its CAGR is:
+
+$$ \mathrm{CAGR}=\left(\frac{150}{100}\right)^{1/5}-1\approx 8.45\\% $$
+
+This means that a constant annual growth rate of 8.45%, compounded over five years, would produce the same overall increase.
+
+```{r}
+performance <- common_prices_long |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  group_by(asset) |>
+  arrange(date) |>
+  summarise(
+    start_price = first(price),
+    end_price = last(price),
+    years = as.numeric(last(date) - first(date)) / 365.25,
+    total_return = end_price / start_price - 1,
+    CAGR =
+      (end_price / start_price)^(1 / years) - 1
+  )
+
+performance
+```
+
+---
+
+# 12. Annualized volatility
+
+Daily volatility is difficult to interpret directly, so it is conventional to annualize it.
+
+For approximately 252 trading days per year:
+
+\[
+\sigma_{\text{annual}}
+=
+\sigma_{\text{daily}}\sqrt{252}.
+\]
+
+In R:
+
+```{r}
+volatility <- returns |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  group_by(asset) |>
+  summarise(
+    daily_volatility = sd(return),
+    annual_volatility = sd(return) * sqrt(252)
+  )
+
+volatility
+```
+
+If annual volatility is:
+
+```text
+0.20
+```
+
+that corresponds to approximately 20%.
+
+The calculation assumes daily returns are sufficiently independent for the square-root-of-time approximation.
+
+---
+
+# 13. Rolling volatility
+
+A single volatility number hides how risk changes over time.
+
+We can use `tq_mutate()` to compute a 30-observation rolling standard deviation:
+
+```{r}
+rolling_volatility <- returns |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  group_by(asset) |>
+  tq_mutate(
+    select = return,
+    mutate_fun = runSD,
+    n = 30,
+    col_rename = "rolling_sd"
+  ) |>
+  mutate(
+    rolling_volatility = rolling_sd * sqrt(252)
+  ) |>
+  ungroup()
+```
+
+`runSD()` calculates a rolling standard deviation.
+
+The argument
+
+```r
+n = 30
+```
+
+means that each volatility estimate uses the previous 30 common trading observations.
+
+We annualize it by multiplying by:
+
+```r
+sqrt(252)
+```
+
+Now plot it:
+
+```{r}
+rolling_volatility |>
+  ggplot(
+    aes(
+      x = date,
+      y = rolling_volatility,
+      color = asset
+    )
+  ) +
+  geom_line() +
+  labs(
+    title = "30-Day Rolling Annualized Volatility",
+    x = NULL,
+    y = "Annualized volatility",
+    color = NULL
+  )
+```
+
+This plot shows whether the difference between Bitcoin and gold risk is stable over time or concentrated in particular periods.
+
+`tidyquant` is specifically designed to apply quantitative functions such as these through `tq_mutate()` and `tq_transmute()`.
+
+---
+
+# 14. Sharpe ratio
+
+Return alone is not sufficient to evaluate an investment.
+
+The Sharpe ratio compares excess return with volatility:
+
+\[
+\text{Sharpe ratio}
+=
+\frac{R-R_f}{\sigma}.
+\]
+
+Rather than assuming a risk-free rate of zero, we will download the 3-month U.S. Treasury constant-maturity yield from FRED (Federal Reserve Economic Data).
+
+Its FRED code is:
+
+```text
+DGS3MO
+```
+
+The series is expressed as an annual percentage yield.
+
+Download it:
+
+
+
+```{r eval=FALSE}
+## NOT WORKING WHEN KNITED
+
+risk_free <- tq_get(
+  "DGS3MO",
+  get = "economic.data",
+  from = start_date,
+  to = end_date
+)
+
+write_csv(risk_free, "data/risk_free.csv")
+
+```
+
+```{r}
+risk_free <- read_csv("data/risk_free.csv")
+risk_free
+
+```
+
+
+
+
+Rename the variable:
+
+```{r}
+risk_free <- risk_free |>
+  select(date, price) |>
+  rename(rf_annual = price)
+```
+
+FRED does not publish a new rate every calendar day.
+
+We therefore create a complete calendar and carry the most recent rate forward:
+
+```{r}
+risk_free <- risk_free |>
+  complete(
+    date = seq.Date(
+      start_date,
+      end_date,
+      by = "day"
+    )
+  ) |>
+  arrange(date) |>
+  fill(
+    rf_annual,
+    .direction = "downup"
+  )
+```
+
+`fill()` uses the latest available Treasury rate for dates on which no new observation was published.
+
+The FRED value is expressed as an annual percentage rate, so we convert it to a daily rate:
+
+```{r}
+risk_free <- risk_free |>
+  mutate(
+    rf_daily =
+      (1 + rf_annual / 100)^(1 / 252) - 1
+  )
+```
+
+Now combine returns with the risk-free rate:
+
+```{r}
+returns_rf <- returns |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  left_join(select(risk_free, date, rf_daily), join_by(date)) |>
+  mutate(excess_return = return - rf_daily)
+```
+
+The daily excess return is:
+
+```text
+asset return − risk-free return
+```
+
+Finally calculate the annualized Sharpe ratio:
+
+```{r}
+sharpe <- returns_rf |>
+  group_by(asset) |>
+  summarise(
+    mean_daily_excess =
+      mean(excess_return, na.rm = TRUE),
+
+    sd_daily_excess =
+      sd(excess_return, na.rm = TRUE),
+
+    sharpe =
+      mean_daily_excess /
+      sd_daily_excess *
+      sqrt(252)
+  )
+
+sharpe
+```
+
+The Sharpe ratio rewards higher excess return but penalizes volatility.
+
+A higher Sharpe ratio indicates more excess return per unit of volatility.
+
+---
+
+# 15. Create a final comparison table
+
+We can combine our main measures:
+
+```{r}
+comparison <- common_prices_long |>
+  filter(asset %in% c("Bitcoin", "Gold")) |>
+  group_by(asset) |>
+  arrange(date) |>
+  summarise(
+    start_price = first(price),
+    end_price = last(price),
+    years = as.numeric(last(date) - first(date)) / 365.25,
+    total_return = end_price / start_price - 1,
+    CAGR = (end_price / start_price)^(1 / years) - 1) |>
+  left_join(select(volatility, asset, annual_volatility), join_by(asset)) |>
+  left_join(select(sharpe, asset, sharpe), join_by(asset))
+
+comparison
+```
+
+This gives one compact table containing:
+
+```text
+asset
+start price
+end price
+total return
+compound annual growth rate
+annualized volatility
+Sharpe ratio
+```
+
+For easier reading:
+
+```{r}
+comparison |>
+  mutate(
+    total_return =
+      scales::percent(total_return, accuracy = 0.1),
+
+    CAGR =
+      scales::percent(CAGR, accuracy = 0.1),
+
+    annual_volatility =
+      scales::percent(
+        annual_volatility,
+        accuracy = 0.1
+      ),
+
+    sharpe =
+      round(sharpe, 2)
+  )
+```
+
+The percentages are formatted for presentation rather than calculation.
+
+---
+
+# 16. Correlation between Bitcoin, Gold and the Dollar
+
+Correlation should be calculated using returns, not raw price levels.
+
+Correlations between trending price series can be misleading because two prices can trend over time even without a meaningful short-run relationship. There are three main reasons:
+
+1. Spurious correlation due to trends. Two unrelated assets may both increase in price over time, producing a high positive correlation between their price levels even if their daily movements are independent. 
+2. Returns measure relative changes. A price increase of 10 has a very different meaning for an asset worth 20 than for one worth 1000. Returns normalize these changes, making assets with different price levels comparable.
+3. Returns better capture co-movement and diversification. In portfolio analysis, we want to know whether assets tend to gain or lose value together over the same periods. Correlations between returns provide a more meaningful measure of this relationship.
+
+First reshape returns:
+
+```{r}
+returns_wide <- returns |>
+  select(date, asset, return) |>
+  pivot_wider(
+    names_from = asset,
+    values_from = return
+  ) |>
+  drop_na()
+
+returns_wide
+```
+
+We now have:
+
+```text
+date
+Bitcoin
+Gold
+Dollar
+```
+
+where each asset column contains its daily return.
+
+Calculate the Pearson correlation matrix:
+
+```{r}
+cor_matrix <- returns_wide |>
+  select(Bitcoin, Gold, Dollar) |>
+  cor()
+
+cor_matrix
+```
+
+The possible values range from:
+
+```text
+-1     perfect negative correlation
+
+ 0     no linear correlation
+
++1     perfect positive correlation
+```
+
+The correlations of particular interest are:
+
+```{r}
+cor(
+  returns_wide$Bitcoin,
+  returns_wide$Gold
+)
+
+cor(
+  returns_wide$Bitcoin,
+  returns_wide$Dollar
+)
+
+cor(
+  returns_wide$Gold,
+  returns_wide$Dollar
+)
+```
+
+The first measures whether Bitcoin and gold tend to move together.
+
+The second measures the relationship between Bitcoin and the U.S. dollar.
+
+The third measures the relationship between gold and the dollar.
+
+---
+
+
+---
+
+
+# 17. Bitcoin and Gold versus the Dollar
+
+We can compare both assets with the Dollar Index in a single graph.
+
+First reshape the data:
+
+```{r}
+dollar_relationship <- returns_wide |>
+  pivot_longer(
+    cols = c(Bitcoin, Gold),
+    names_to = "asset",
+    values_to = "asset_return"
+  )
+```
+
+Now plot:
+
+```{r}
+dollar_relationship |>
+  ggplot(
+    aes(
+      x = Dollar,
+      y = asset_return
+    )
+  ) +
+  geom_point(
+    alpha = 0.3
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE
+  ) +
+  facet_wrap(
+    ~ asset,
+    scales = "free_y"
+  ) +
+  labs(
+    title = "Bitcoin and Gold versus the U.S. Dollar",
+    x = "Dollar Index return",
+    y = "Asset return"
+  )
+```
+
+This makes it easy to compare the two relationships visually.
+
+A negative correlation with the Dollar Index means that the asset tends, on average, to rise when the dollar weakens and fall when the dollar strengthens.
+
+A correlation close to zero implies little contemporaneous linear relationship.
+
+This does not establish a causal effect of the dollar on the asset.
+
+---
+
+# 18. Has correlation changed over time?
+
+A single correlation for 2017–today may conceal substantial changes.
+
+A simple way to investigate this is to calculate correlations separately by year:
+
+```{r}
+yearly_correlations <- returns_wide |>
+  mutate(
+    year = format(date, "%Y")
+  ) |>
+  group_by(year) |>
+  summarise(
+    bitcoin_gold =
+      cor(Bitcoin, Gold),
+
+    bitcoin_dollar =
+      cor(Bitcoin, Dollar),
+
+    gold_dollar =
+      cor(Gold, Dollar)
+  )
+
+yearly_correlations
+```
+
+`format(date, "%Y")` extracts the calendar year.
+
+The three `cor()` calls then calculate the correlations separately within each year.
+
+Convert to long format:
+
+```{r}
+yearly_correlations_long <-
+  yearly_correlations |>
+  pivot_longer(
+    -year,
+    names_to = "pair",
+    values_to = "correlation"
+  )
+```
+
+And visualize them:
+
+```{r}
+yearly_correlations_long |>
+  ggplot(
+    aes(
+      x = year,
+      y = correlation,
+      color = pair,
+      group = pair
+    )
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Correlation through Time",
+    x = NULL,
+    y = "Correlation",
+    color = NULL
+  ) +
+  theme(
+    axis.text.x =
+      element_text(
+        angle = 45,
+        hjust = 1
+      )
+  )
+```
+
+This is often more informative than reporting only one full-period correlation.
+
+Bitcoin's relationship with gold or the dollar need not remain constant through time.
+
+---
+
+# 19. Yearly returns
+
+We can also compare annual performance.
+
+In finance, the annual return is obtained by multiplying daily returns because investment returns compound over time: each day's return applies to the value of the investment at the end of the previous day, not to its initial value.
+
+```{r}
+yearly_returns <- returns |>
+  filter(
+    asset %in%
+      c("Bitcoin", "Gold")
+  ) |>
+  mutate(
+    year = format(date, "%Y")
+  ) |>
+  group_by(asset, year) |>
+  summarise(
+    annual_return =
+      prod(1 + return) - 1,
+    .groups = "drop"
+  )
+
+yearly_returns
+```
+
+For each year,
+
+```r
+prod(1 + return) - 1
+```
+
+compounds all daily returns.
+
+Plot the results:
+
+```{r}
+yearly_returns |>
+  ggplot(
+    aes(
+      x = year,
+      y = annual_return,
+      fill = asset
+    )
+  ) +
+  geom_col(
+    position = "dodge"
+  ) +
+  scale_y_continuous(
+    labels = scales::percent
+  ) +
+  labs(
+    title = "Annual Returns: Bitcoin versus Gold",
+    x = NULL,
+    y = "Annual return",
+    fill = NULL
+  ) +
+  theme(
+    axis.text.x =
+      element_text(
+        angle = 45,
+        hjust = 1
+      )
+  )
+```
+
+This chart prevents the overall 2017–today result from obscuring very different individual years.
+
+---
+
+# 20. What should we conclude from the analysis?
+
+The analysis should distinguish several different questions.
+
+Price performance asks:
+
+> Which asset appreciated more?
+
+The indexed-price graph, total return, and CAGR answer this question.
+
+Risk asks:
+
+> How variable were the returns?
+
+Daily return distributions, annualized volatility, and rolling volatility address this question.
+
+Risk-adjusted return asks:
+
+> How much excess return was obtained for the volatility experienced?
+
+The Sharpe ratio addresses this question.
+
+Diversification asks:
+
+> Do the assets tend to move together?
+
+The Bitcoin–gold return correlation provides evidence about this.
+
+The relationship with the dollar asks:
+
+> Do Bitcoin and gold tend to rise or fall when the U.S. dollar strengthens?
+
+The correlations with the Dollar Index address this question.
+
+These questions should not be collapsed into a single statement about which asset is "better".
+
+---
+
+# 21. Complete workflow
+
+The complete empirical workflow is:
+
+```text
+tq_get()
+    ↓
+download Bitcoin, gold and dollar data
+    ↓
+align common trading dates
+    ↓
+normalize prices
+    ↓
+calculate returns
+    ↓
+measure performance
+    ↓
+measure volatility
+    ↓
+calculate Sharpe ratios
+    ↓
+calculate correlations
+    ↓
+examine changes through time
+    ↓
+interpret the different dimensions together
+```
+
+The most important methodological principle is that price comparisons, return comparisons, volatility comparisons, and correlation analysis answer different questions.
+
+In particular, correlations should generally be calculated using returns rather than raw prices, and assets with different trading calendars should be aligned before cross-asset return analysis.

@@ -1,0 +1,8 @@
+"0","library(ggplot2)"
+"0","displ = mpg$displ"
+"0","hwy = mpg$hwy"
+"0","cor(displ, hwy)"
+"1","[1]"
+"1"," -0.76602"
+"1","
+"

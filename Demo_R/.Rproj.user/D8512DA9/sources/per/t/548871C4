@@ -1,0 +1,28 @@
+{
+    "id": "548871C4",
+    "path": "~/Desktop/DataScience/Demo_R/ENS.Rmd",
+    "project_path": "ENS.Rmd",
+    "type": "r_markdown",
+    "hash": "1915417868",
+    "contents": "",
+    "dirty": false,
+    "created": 1792579675959.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "chunk_output_type": "inline",
+        "source_window_id": "",
+        "Source": "Source",
+        "last_setup_crc32": "c73d28a07f788115",
+        "cursorPosition": "130,14",
+        "scrollLine": "106"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1792580959,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1792580959921,
+    "read_only": false,
+    "read_only_alternatives": []
+}

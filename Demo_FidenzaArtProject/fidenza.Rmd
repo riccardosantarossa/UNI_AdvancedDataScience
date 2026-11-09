@@ -1,0 +1,3801 @@
+---
+title: "Fidenza: art and market"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: false
+    number_sections: true
+    theme: spacelab
+    highlight: pygments
+    df_print: paged
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+```
+
+[Fidenza](https://www.tylerxhobbs.com/words/fidenza) is a fixed NFT collection of 999 works, created by Tyler Hobbs and released on June 11, 2021, on [Art Blocks](https://www.artblocks.io/collection/fidenza-by-tyler-hobbs) as primary market. The secondary market is on [OpenSea](https://opensea.io/collection/fidenza-by-tyler-hobbs). 
+
+Let's start with a [video](https://youtu.be/5ETrXegVj_g?si=tcSN2t-XJ2RV6ydV) introducing generative artist Tyler Hobbs.
+
+We want to answer for groups of questions:
+
+* [Part I](#part-i): What are the artworks?
+* [Part II](#part-ii): Where did the artworks go?
+* [Part III](#part-iii): When did money change hands?
+* [Part IV](#part-iv): Can characteristics of the artworks help explain market prices?
+
+
+For Part I we will use the Art Blocks GraphQL API, which provides token metadata and computed features. For Part II we will use the official Art Blocks Ethereum subgraph, whose `Token` entity contains the complete list of `Transfer` events for each token. For Parts III and IV we will access to the OpenSea secondary market via OpenSea API. 
+
+
+# Part I — The art {#part-i}
+
+```{r}
+library(tidyverse)
+library(httr2)
+library(ineq)
+```
+
+Art Blocks encodes the project and invocation in the token ID; Fidenza is project 78, so, for example, token `78000042` is Fidenza #42. 
+
+Define the Art Blocks contract and Fidenza project:
+
+```{r}
+contract_address <-
+  "0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270"
+
+project_number <- 78
+
+project_id <- str_c(
+  contract_address,
+  "-",
+  project_number
+)
+```
+
+The result is:
+
+```text
+0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270-78
+```
+
+Art Blocks uses identifiers of the form
+
+```text
+contract address - project number
+```
+
+in its metadata API. 
+
+
+
+## Download the 999 Fidenzas
+
+
+
+Art Blocks provides a GraphQL endpoint:
+
+```text
+https://data.artblocks.io/v1/graphql
+```
+
+The `tokens_metadata` table contains, among other things:
+
+- token ID;
+- invocation number;
+- current owner;
+- mint timestamp;
+- features;
+- artwork URL.
+
+The API explicitly supports `features` as a JSON object containing the computed traits of each artwork. 
+
+Create a GraphQL query:
+
+```{r}
+query <- glue::glue(
+  '
+  query {{
+    tokens_metadata(
+      where: {{
+        project_id: {{_eq: "{project_id}"}}
+        chain_id: {{_eq: 1}}
+      }}
+      order_by: {{invocation: asc}}
+      limit: 1000
+    ) {{
+      token_id
+      invocation
+      owner_address
+      minted_at
+      features
+      media_url
+    }}
+  }}
+  '
+)
+```
+
+GraphQL is simply another way of asking an API for data.
+
+Instead of requesting an entire fixed response, we specify exactly the variables we want:
+
+```text
+token_id
+invocation
+owner_address
+minted_at
+features
+media_url
+```
+
+Now send the query:
+
+```{r eval=FALSE}
+response <- request(
+  "https://data.artblocks.io/v1/graphql"
+) |>
+  req_body_json(
+    list(query = query)
+  ) |>
+  req_perform() |>
+  resp_body_json(
+    simplifyVector = FALSE
+  )
+
+if (!is.null(response$errors)) {
+  stop(response$errors[[1]]$message)
+}
+
+write_rds(response, "data/response.rds")
+```
+
+```{r}
+response <- read_rds("data/response.rds")
+```
+
+
+The actual token data are in:
+
+```{r eval=FALSE}
+response$data$tokens_metadata
+```
+
+---
+
+## Convert the response into a tibble
+
+The API response is a nested R list. We convert every token into one row:
+
+```{r}
+fidenza <- response$data$tokens_metadata |>
+  map_dfr(
+    function(x) {
+
+      tibble(
+        fidenza =
+          as.integer(x$invocation),
+
+        token_id =
+          as.numeric(x$token_id),
+
+        owner =
+          str_to_lower(x$owner_address),
+
+        minted_at =
+          ymd_hms(x$minted_at),
+
+        media_url =
+          x$media_url,
+
+        features =
+          list(x$features)
+      )
+    }
+  )
+```
+
+
+Inspect data:
+
+```{r}
+glimpse(fidenza)
+```
+
+There is an important variable here:
+
+```
+features
+```
+
+It is a list-column. Each row contains a small nested object holding the traits of that particular Fidenza.
+
+The Fidenza traits describe parameters or special behaviors of Tyler Hobbs’s generative algorithm. The main ones are:
+
+- `Scale` — the typical size of the flowing rectangular shapes, from smaller/finer to very large forms.
+- `Colors` — the color palette used. Fidenza contains a set of hand-designed probabilistic palettes. 
+- `Density` — how densely the shapes populate the composition; higher density generally means more elements.
+- `Turbulence` — how strongly the underlying flow field bends and twists the shapes. `None` produces straight forms; higher values produce more curvature. 
+- `Spiral` — whether the normal flow field is transformed into a spiral structure. 
+- `Outlined` — whether shapes are drawn with visible outlines, giving a more graphic appearance. 
+- `Soft Shapes` — uses many fine parallel lines instead of solid fills, producing a softer, more painterly texture. 
+- `Shape Angles` — usually shapes curve smoothly; the rare `Sharp` variant constrains their directions to discrete angles, producing angular forms. 
+- `Super Blocks` — fills shapes with blocks of color rather than the usual treatment, creating more strongly segmented, vibrant forms. 
+- `Collision Check` — controls whether shapes are prevented from overlapping: `No Overlap`, `Relaxed`, or the much more chaotic `Anything Goes`. 
+- `Have Margin` — whether the composition preserves a visible margin around the outer boundary.
+
+So these are not merely labels assigned afterward: they describe aspects of the generative process that produced each Fidenza. That is what makes them especially useful for our rarity analysis.
+
+Check the collection:
+
+```{r}
+fidenza |>
+  summarise(
+    artworks = n(),
+    first = min(fidenza),
+    last = max(fidenza)
+  )
+```
+
+We should obtain 999 artworks, corresponding to Fidenza #0 through #998. Art Blocks describes the project as a fixed edition of 999 unique artworks.
+
+---
+
+## Look at one artwork's features
+
+For example:
+
+```{r}
+fidenza$features[[1]]
+```
+
+You should see traits such as:
+
+```text
+Scale
+Colors
+Spiral
+Density
+Outlined
+Turbulence
+Have Margin
+Soft Shapes
+Shape Angles
+Super Blocks
+Collision Check
+```
+
+These are not features that we have inferred from the image. They are generated by the Fidenza algorithm and exposed as metadata by Art Blocks. 
+
+Our dataset is currently wide in an unusual way: the features are hidden inside a list-column.
+
+Let's tidy them.
+
+---
+
+## Create a tidy trait dataset
+
+We want:
+
+```text
+Fidenza   trait          value
+0         Scale          Large
+0         Colors         Golf Socks
+0         Density        Medium
+...
+1         Scale          Jumbo
+1         Colors         Luxe
+...
+```
+
+We can transform each feature list into a small tibble:
+
+```{r}
+traits <- fidenza |>
+  select(
+    fidenza,
+    token_id,
+    features
+  ) |>
+  mutate(
+    features =
+      map(
+        features,
+        function(x) {
+          enframe(
+            unlist(x),
+            name = "trait",
+            value = "value"
+          )
+        }
+      )
+  ) |>
+  unnest(features) |>
+  mutate(
+    value = as.character(value)
+  )
+```
+
+Inspect:
+
+```{r}
+traits
+```
+
+This is a classic tidy-data transformation.
+
+Each row now represents one observation of:
+
+```text
+one Fidenza × one trait
+```
+
+For instance:
+
+```{r}
+traits |>
+  filter(fidenza == 0)
+```
+
+shows the complete trait profile of Fidenza #0.
+
+---
+
+## How many traits are there?
+
+```{r}
+traits |>
+  distinct(trait) |>
+  arrange(trait)
+```
+
+Or simply:
+
+```{r}
+traits |>
+  summarise(
+    n_traits =
+      n_distinct(trait)
+  )
+```
+
+We can also check that the traits are present across the collection:
+
+```{r}
+traits |>
+  count(
+    trait,
+    name = "observations"
+  )
+```
+
+Ideally, each trait should have one observation for each of the 999 artworks.
+
+---
+
+## Trait frequencies
+
+Now calculate how common each trait value is.
+
+```{r}
+trait_frequency <- traits |>
+  count(
+    trait,
+    value,
+    name = "n"
+  ) |>
+  group_by(trait) |>
+  mutate(
+    frequency =
+      n / sum(n)
+  ) |>
+  ungroup()
+```
+
+For example:
+
+```{r}
+trait_frequency |>
+  filter(trait == "Scale") |>
+  arrange(desc(frequency))
+```
+
+---
+
+## Visualize trait frequencies
+
+Select some visually meaningful traits:
+
+```{r}
+trait_frequency |>
+  filter(
+    trait %in%
+      c(
+        "Scale",
+        "Density",
+        "Turbulence",
+        "Colors"
+      )
+  ) |>
+  ggplot(
+    aes(
+      x = value,
+      y = frequency
+    )
+  ) +
+  geom_col() +
+  facet_wrap(
+    ~ trait,
+    scales = "free_x"
+  ) +
+  scale_y_continuous(
+    labels = scales::percent
+  ) +
+  labs(
+    title = "Traits of Fidenza",
+    x = NULL,
+    y = "Share of collection"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x =
+      element_text(
+        angle = 45,
+        hjust = 1
+      )
+  )
+```
+
+This immediately shows that some characteristics are common while others are unusual. That naturally leads to rarity.
+
+---
+
+## What does "rare" mean?
+
+Suppose a trait value occurs in:
+
+```text
+500 / 999 artworks
+```
+
+It is common.
+
+A trait occurring in:
+
+```text
+10 / 999 artworks
+```
+
+is much rarer.
+
+There is no uniquely correct mathematical definition of NFT rarity. That is an important methodological point.
+
+For this lab, we will define the rarity contribution of a trait value as:
+
+\[
+r=-\log(p),
+\]
+
+where \(p\) is its frequency.
+
+Therefore:
+
+- common values have low rarity;
+- rare values have high rarity.
+
+Add it to the table:
+
+```{r}
+trait_frequency <- trait_frequency |>
+  mutate(
+    rarity_component =
+      -log(frequency)
+  )
+```
+
+The advantage of this measure is that rarity contributions can naturally be added.
+
+---
+
+## Calculate a rarity score for every Fidenza
+
+Join each artwork's traits with their frequencies:
+
+```{r}
+rarity <- traits |>
+  left_join(
+    trait_frequency,
+    by = c(
+      "trait",
+      "value"
+    )
+  ) |>
+  summarise(
+    rarity_score =
+      sum(rarity_component),
+
+    .by =
+      c(
+        fidenza,
+        token_id
+      )
+  )
+```
+
+The score is:
+
+\[
+R_i
+=
+\sum_j -\log(p_{ij}).
+\]
+
+A Fidenza receiving several uncommon trait values will therefore obtain a high score.
+
+Add a percentile:
+
+```{r}
+rarity <- rarity |>
+  mutate(
+    rarity_percentile =
+      100 *
+      percent_rank(
+        rarity_score
+      )
+  )
+```
+
+Now:
+
+```{r}
+rarity |>
+  arrange(
+    desc(rarity_score)
+  ) |>
+  slice_head(n = 10)
+```
+
+shows our [ten rarest Fidenzas](https://opensea.io/collection/fidenza-by-tyler-hobbs?sortBy=rarity&sortDirection=desc) according to this particular definition.
+
+A `rarity_percentile` close to 100 means that the artwork has one of the highest scores.
+
+---
+
+## Visualize rarity
+
+```{r}
+rarity |>
+  ggplot(
+    aes(rarity_score)
+  ) +
+  geom_histogram(
+    bins = 50
+  ) +
+  labs(
+    title = "Distribution of Fidenza rarity",
+    x = "Rarity score",
+    y = "Artworks"
+  ) +
+  theme_minimal()
+```
+
+This is a good place to discuss an important limitation.
+
+Our score implicitly combines trait frequencies as if they were separate pieces of information. But traits can be associated with one another. Consequently:
+
+```text
+rarity score ≠ objective artistic rarity
+```
+
+It is a useful statistical summary, not an intrinsic property of the artwork.
+
+
+---
+
+# Part II — The owners {#part-ii}
+
+Now we move from metadata to blockchain history.
+
+The Art Blocks subgraph defines a `Transfer` entity containing:
+
+```text
+token
+from
+to
+transactionHash
+blockNumber
+blockTimestamp
+```
+
+and each token has a `transfers` relationship containing its complete transfer history. 
+
+This lets us reconstruct provenance.
+
+---
+
+## Access the Art Blocks blockchain subgraph
+
+Art Blocks publishes its Ethereum subgraph through The Graph. The Graph is, essentially, an indexing layer for blockchain data.
+
+Querying Ethereum directly is excellent when you know exactly which blocks, transactions, or logs you want. But questions such as
+
+> “Give me every ownership transfer of every Fidenza, ordered through time”
+
+are awkward to answer by repeatedly querying an Ethereum node.
+
+The Graph solves this by continuously reading blockchain data, organizing selected information into indexed datasets called subgraphs, and making those datasets queryable with GraphQL. The Graph Network is served by decentralized Indexers, while a gateway gives applications a single endpoint through which to query those Indexers. 
+
+For our Fidenza lab, the architecture is therefore:
+
+```text
+Ethereum blockchain
+        ↓
+Art Blocks subgraph
+        ↓
+The Graph indexes the data
+        ↓
+GraphQL query
+        ↓
+R
+```
+
+### The Graph versus Etherscan
+
+It may help to compare it with what we have already done:
+
+```text
+Etherscan
+Ethereum → Etherscan index → REST API → R
+
+
+The Graph
+Ethereum → Subgraph → GraphQL API → R
+```
+
+Both save us from scanning the blockchain ourselves.
+
+The difference is that a subgraph has a data model designed specifically for a protocol or application. The Art Blocks subgraph, for example, understands Art Blocks concepts such as projects, tokens and their transfers. That makes queries such as “give me the transfers belonging to these Art Blocks tokens” much easier.
+
+### How to obtain the key
+
+Go to [The Graph Subgraph Studio](https://thegraph.com/studio).
+
+The current procedure is:
+
+1. Sign in to Subgraph Studio; the Studio uses a connected crypto wallet for the account.
+2. Open the `API Keys` section.
+3. Choose `Create API Key`.
+4. Give it a descriptive name, for example `Fidenza R Lab`.
+5. Optionally set a spending limit.
+6. Create the key and copy it.
+
+
+Currently, Subgraph Studio starts users on a free plan providing up to 100,000 queries per month. That is more than enough for the type of classroom analysis we are considering, provided we query sensibly and cache the downloaded data. 
+
+Store the key in `.Renviron`:
+
+```text
+GRAPH_API_KEY=your_key_here
+```
+
+Then:
+
+```{r}
+graph_api_key <-
+  Sys.getenv("GRAPH_API_KEY")
+```
+
+
+Construct the endpoint:
+
+```{r}
+graph_url <- str_c(
+  "https://gateway-arbitrum.network.thegraph.com/api/",
+  graph_api_key,
+  "/subgraphs/id/",
+  "6bR1oVsRUUs6czNiB6W7NNenTXtVfNd5iSiwvS4QbRPB"
+)
+```
+
+* `gateway-arbitrum.network.thegraph.com` is the official gateway to The Graph Network
+* `6bR1oVsRUUs6czNiB6W7NNenTXtVfNd5iSiwvS4QbRPB` is the Subgraph ID of the Art Blocks subgraph for Ethereum Mainnet
+
+---
+
+## Download Fidenza transfer histories
+
+Rather than requesting all 999 tokens at once, we download them in batches of 100.
+
+```{r}
+get_transfer_batch <- function(
+    skip,
+    batch_size = 100
+) {
+
+  query <- glue::glue(
+    '
+    {{
+      tokens(
+        first: {batch_size},
+        skip: {skip},
+        where: {{
+          project: "{project_id}"
+        }},
+        orderBy: invocation,
+        orderDirection: asc
+      ) {{
+        tokenId
+        invocation
+
+        transfers(
+          first: 1000,
+          orderBy: blockTimestamp,
+          orderDirection: asc
+        ) {{
+          id
+          from
+          to
+          transactionHash
+          blockNumber
+          blockTimestamp
+        }}
+      }}
+    }}
+    '
+  )
+
+  response <- request(graph_url) |>
+    req_body_json(
+      list(query = query)
+    ) |>
+    req_perform() |>
+    resp_body_json(
+      simplifyVector = FALSE
+    )
+
+  if (!is.null(response$errors)) {
+    stop(response$errors[[1]]$message)
+  }
+
+  response$data$tokens |>
+    map_dfr(
+      function(token) {
+
+        if (
+          length(
+            token$transfers
+          ) == 0
+        ) {
+          return(tibble())
+        }
+
+        token$transfers |>
+          map_dfr(
+            function(transfer) {
+
+              tibble(
+                fidenza =
+                  as.integer(
+                    token$invocation
+                  ),
+
+                token_id =
+                  as.numeric(
+                    token$tokenId
+                  ),
+
+                transfer_id =
+                  transfer$id,
+
+                from =
+                  str_to_lower(
+                    transfer$from
+                  ),
+
+                to =
+                  str_to_lower(
+                    transfer$to
+                  ),
+
+                transaction_hash =
+                  transfer$transactionHash,
+
+                block =
+                  as.numeric(
+                    transfer$blockNumber
+                  ),
+
+                time =
+                  as.POSIXct(
+                    as.numeric(
+                      transfer$blockTimestamp
+                    ),
+                    origin =
+                      "1970-01-01",
+                    tz = "UTC"
+                  )
+              )
+            }
+          )
+      }
+    )
+}
+```
+
+There are two levels of iteration here:
+
+```text
+100 Fidenza tokens
+       ↓
+for each token
+       ↓
+all Transfer events
+       ↓
+one tidy transfer table
+```
+
+The nested `map_dfr()` calls convert the nested GraphQL structure into ordinary rows.
+
+---
+
+## Download the collection
+
+Create the batch starting positions:
+
+```{r}
+skips <- seq(
+  from = 0,
+  to = nrow(fidenza) - 1,
+  by = 100
+)
+```
+
+Then:
+
+```{r eval=FALSE}
+transfers <- map_dfr(
+  skips,
+  function(skip) {
+
+    message(
+      "Downloading tokens ",
+      skip + 1,
+      "–",
+      min(
+        skip + 100,
+        nrow(fidenza)
+      )
+    )
+
+    get_transfer_batch(skip)
+  }
+)
+
+write_csv(transfers, "data/transfers.csv")
+
+```
+
+```{r}
+transfers <- read_csv("data/transfers.csv")
+```
+
+
+Inspect:
+
+```{r}
+transfers
+```
+
+At this point each row represents one on-chain ERC-721 ownership transfer.
+
+---
+
+## Identify minting
+
+ERC-721 minting is represented as a transfer from the zero address.
+
+Define it:
+
+```{r}
+zero_address <-
+  "0x0000000000000000000000000000000000000000"
+```
+
+Then:
+
+```{r}
+transfers <- transfers |>
+  mutate(
+    is_mint =
+      from == zero_address
+  )
+```
+
+Count mint events:
+
+```{r}
+transfers |>
+  filter(is_mint) |>
+  summarise(
+    mints = n(),
+    artworks = n_distinct(fidenza)
+  )
+```
+
+We expect one mint for every Fidenza.
+
+This is an elegant feature of ERC-721 data:
+
+```text
+0x000...000
+     ↓
+first collector
+```
+
+represents creation of the NFT.
+
+---
+
+## Reconstruct provenance
+
+Sort the transfers chronologically:
+
+```{r}
+provenance <- transfers |>
+  arrange(
+    fidenza,
+    block,
+    time,
+    transfer_id
+  ) |>
+  group_by(fidenza) |>
+  mutate(
+    transfer_number =
+      row_number()
+  ) |>
+  ungroup()
+```
+
+Now choose one Fidenza:
+
+```{r}
+provenance |>
+  filter(fidenza == 0) |>
+  select(
+    fidenza,
+    transfer_number,
+    time,
+    from,
+    to
+  )
+```
+
+Conceptually, this reconstructs:
+
+```text
+zero address
+    ↓
+owner A
+    ↓
+owner B
+    ↓
+owner C
+    ↓
+current owner
+```
+
+This is its blockchain provenance.
+
+---
+
+## How much have individual Fidenzas moved?
+
+For each artwork:
+
+```{r}
+transfer_summary <- provenance |>
+  summarise(
+    mint_time =
+      first(time[is_mint]),
+
+    transfers_after_mint =
+      sum(!is_mint),
+
+    distinct_owners =
+      n_distinct(
+        to[
+          to != zero_address
+        ]
+      ),
+
+    current_owner =
+      last(to),
+
+    .by = fidenza
+  )
+```
+
+Inspect the most frequently transferred works:
+
+```{r}
+transfer_summary |>
+  arrange(
+    desc(
+      transfers_after_mint
+    )
+  ) |>
+  slice_head(n = 10)
+```
+
+Now we can distinguish:
+
+```text
+transfers_after_mint
+    number of ownership movements
+
+distinct_owners
+    number of different addresses that have owned it
+```
+
+The two need not be equal because an NFT can return to a previous owner.
+
+---
+
+## Distribution of transfers
+
+```{r}
+transfer_summary |>
+  ggplot(
+    aes(
+      transfers_after_mint
+    )
+  ) +
+  geom_histogram(
+    binwidth = 1,
+    boundary = 0
+  ) +
+  labs(
+    title = "How often have Fidenzas moved?",
+    x = "Transfers after mint",
+    y = "Fidenzas"
+  ) +
+  theme_minimal()
+```
+
+Questions:
+
+- Are most Fidenzas rarely transferred?
+- Is there a long tail of highly mobile artworks?
+- Which Fidenzas have never moved after their initial mint?
+- Does the distribution resemble the rarity distribution?
+
+---
+
+## Validate the current owners
+
+We have two independent sources:
+
+```text
+Art Blocks metadata → current owner
+
+blockchain transfers → final recipient
+```
+
+Join them:
+
+```{r}
+owner_check <- transfer_summary |>
+  left_join(
+    fidenza |>
+      select(
+        fidenza,
+        metadata_owner = owner
+      ),
+    by = "fidenza"
+  ) |>
+  mutate(
+    match =
+      current_owner ==
+      metadata_owner
+  )
+```
+
+Check:
+
+```{r}
+owner_check |>
+  count(match)
+```
+
+Ideally they should agree.
+
+If a small discrepancy appears, remember that the two API queries were made at slightly different moments. An NFT could have moved between the two requests.
+
+This is also a useful lesson about dynamic datasets.
+
+---
+
+## Construct ownership spells
+
+A transfer to an address marks the beginning of a period of ownership.
+
+For example:
+
+```text
+A receives NFT at t1
+A sends NFT at t2
+
+holding period = t2 - t1
+```
+
+We can reconstruct these spells with `lead()`:
+
+```{r}
+ownership_spells <- provenance |>
+  arrange(
+    fidenza,
+    block,
+    time,
+    transfer_id
+  ) |>
+  group_by(fidenza) |>
+  mutate(
+    owner =
+      to,
+
+    acquired_at =
+      time,
+
+    released_at =
+      lead(time),
+
+    holding_days =
+      as.numeric(
+        difftime(
+          released_at,
+          acquired_at,
+          units = "days"
+        )
+      ),
+
+    current_holding =
+      is.na(released_at)
+  ) |>
+  ungroup() |>
+  filter(
+    owner != zero_address
+  )
+
+ownership_spells |> 
+  filter(fidenza == 0) |> 
+  select(fidenza, owner, acquired_at, released_at, holding_days, current_holding)
+
+```
+
+This is one of the most interesting transformations in the lab.
+
+Raw blockchain data look like:
+
+```text
+transfer
+transfer
+transfer
+transfer
+```
+
+but we transform them into:
+
+```text
+owner     acquired     released     holding days
+A         ...          ...          125
+B         ...          ...           18
+C         ...          ...          640
+D         ...          NA           current
+```
+
+---
+
+## Completed holding periods
+
+For current owners:
+
+```r
+released_at
+```
+
+is missing because they have not transferred the NFT yet.
+
+Their holding period is therefore right-censored: we know when it started, but not when it will end.
+
+For a simple introductory analysis, use only completed ownership spells:
+
+```{r}
+completed_holdings <- ownership_spells |>
+  filter(
+    !current_holding
+  )
+```
+
+Summary:
+
+```{r}
+completed_holdings |>
+  summarise(
+    ownership_spells = n(),
+    mean_days =
+      mean(holding_days),
+    median_days =
+      median(holding_days),
+    q90_days =
+      quantile(
+        holding_days,
+        0.90
+      )
+  )
+```
+
+The difference between mean and median will tell us whether holding periods are skewed.
+
+---
+
+## Distribution of holding periods
+
+```{r}
+completed_holdings |>
+  filter(
+    holding_days > 0
+  ) |>
+  ggplot(
+    aes(holding_days)
+  ) +
+  geom_histogram(
+    bins = 50
+  ) +
+  scale_x_log10() +
+  labs(
+    title = "How long are Fidenzas held?",
+    subtitle =
+      "Completed ownership periods, logarithmic scale",
+    x = "Holding period (days)",
+    y = "Ownership spells"
+  ) +
+  theme_minimal()
+```
+
+The logarithmic scale allows us to see very short holdings and multi-year holdings in the same graph.
+
+A methodological question:
+
+> Why might analyzing only completed holding periods underestimate typical holding time?
+
+Because long-term current owners have not yet generated a completed spell.
+
+This is exactly the problem that survival analysis is designed to address, but we can leave that for a more advanced course.
+
+---
+
+## Typical holding time for each artwork
+
+We can also summarize by Fidenza:
+
+```{r}
+holding_by_fidenza <- completed_holdings |>
+  summarise(
+    completed_owners = n(),
+
+    median_holding_days =
+      median(holding_days),
+
+    mean_holding_days =
+      mean(holding_days),
+
+    .by = fidenza
+  )
+```
+
+Then:
+
+```{r}
+holding_by_fidenza |>
+  arrange(
+    desc(
+      median_holding_days
+    )
+  )
+```
+
+This lets us ask whether some artworks seem to remain in collections much longer than others.
+
+---
+
+## Current ownership
+
+For current ownership, use the Art Blocks metadata directly:
+
+```{r}
+ownership <- fidenza |>
+  count(
+    owner,
+    name = "n_fidenzas",
+    sort = TRUE
+  ) |>
+  mutate(
+    share =
+      n_fidenzas /
+      sum(n_fidenzas),
+
+    rank =
+      row_number()
+  )
+```
+
+Now:
+
+```r
+ownership
+```
+
+has one row per current owner address:
+
+```text
+owner          n_fidenzas   share
+0x...          25           ...
+0x...          14           ...
+0x...           8           ...
+...
+```
+
+---
+
+## How many distinct current owners?
+
+```{r}
+ownership |>
+  summarise(
+    owners = n(),
+
+    mean_fidenzas =
+      mean(n_fidenzas),
+
+    median_fidenzas =
+      median(n_fidenzas),
+
+    largest_collection =
+      max(n_fidenzas),
+
+    one_fidenza_share =
+      mean(
+        n_fidenzas == 1
+      )
+  )
+```
+
+The last quantity answers:
+
+> What proportion of owner addresses currently hold exactly one Fidenza?
+
+---
+
+## Largest holders
+
+```{r}
+ownership |>
+  slice_head(n = 20)
+```
+
+We can visualize them. First, addresses are long and unattractive as labels. We can shorten them:
+
+```{r}
+ownership <- ownership |>
+  mutate(
+    owner_short =
+      str_c(
+        str_sub(owner, 1, 6),
+        "…",
+        str_sub(owner, -4)
+      )
+  )
+```
+
+
+```{r}
+ownership |>
+  slice_head(n = 20) |>
+  mutate(
+    owner_short =
+      fct_reorder(
+        owner_short,
+        n_fidenzas
+      )
+  ) |>
+  ggplot(
+    aes(
+      x = owner_short,
+      y = n_fidenzas
+    )
+  ) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Largest Fidenza holders",
+    x = NULL,
+    y = "Fidenzas owned"
+  ) +
+  theme_minimal()
+```
+
+
+---
+
+## Top-owner concentration
+
+Calculate some simple concentration measures:
+
+```{r}
+n_owners <- nrow(ownership)
+
+top_1_percent <-
+  ceiling(
+    0.01 * n_owners
+  )
+
+concentration <- ownership |>
+  summarise(
+    top_1_owner =
+      sum(
+        share[
+          rank <= 1
+        ]
+      ),
+
+    top_10_owners =
+      sum(
+        share[
+          rank <= 10
+        ]
+      ),
+
+    top_1_percent =
+      sum(
+        share[
+          rank <= top_1_percent
+        ]
+      )
+  )
+
+concentration
+```
+
+For example, `top_10_owners` answers:
+
+> What fraction of all 999 Fidenzas is held by the ten largest owner addresses?
+
+---
+
+## Lorenz curve
+
+The Lorenz curve gives us a complete picture of ownership concentration.
+
+```{r}
+lorenz <-
+  Lc(
+    ownership$n_fidenzas
+  )
+```
+
+Convert it to a tibble:
+
+```{r}
+lorenz_df <- tibble(
+  owner_share =
+    lorenz$p,
+
+  fidenza_share =
+    lorenz$L
+)
+```
+
+Plot:
+
+```{r}
+lorenz_df |>
+  ggplot(
+    aes(
+      x = owner_share,
+      y = fidenza_share
+    )
+  ) +
+  geom_line() +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed"
+  ) +
+  coord_equal() +
+  labs(
+    title = "Concentration of Fidenza ownership",
+    x = "Cumulative share of owners",
+    y = "Cumulative share of Fidenzas"
+  ) +
+  theme_minimal()
+```
+
+The dashed line represents perfect equality.
+
+If every owner held exactly the same number of Fidenzas, the Lorenz curve would lie on that diagonal.
+
+The farther the observed curve bends below it, the more concentrated ownership is.
+
+---
+
+## Gini coefficient
+
+The same information can be summarized with the Gini index:
+
+```{r}
+gini <-
+  Gini(
+    ownership$n_fidenzas
+  )
+
+gini
+```
+
+Interpretation:
+
+\[
+G=0
+\]
+
+means perfectly equal ownership, whereas values closer to
+
+\[
+G=1
+\]
+
+indicate increasingly concentrated ownership.
+
+In this case we observe the complete set of current Fidenza owner addresses, not a sample of them, so I would not apply a finite-sample correction.
+
+---
+
+## An important limitation
+
+We should be precise about what we have measured.
+
+Our unit is an Ethereum address:
+
+```text
+address ≠ necessarily one person
+```
+
+A collector can own several wallets.
+
+Conversely, one smart contract, custody wallet, vault, or marketplace address can potentially represent multiple economic owners.
+
+So the correct interpretation is:
+
+> concentration of on-chain Fidenza ownership across Ethereum addresses
+
+rather than:
+
+> concentration among individual people.
+
+This distinction matters.
+
+---
+
+## Bring Parts I and II together
+
+We now have three Fidenza-level tables:
+
+```{r}
+fidenza
+rarity
+transfer_summary
+```
+
+plus:
+
+```{r}
+holding_by_fidenza
+```
+
+Combine them:
+
+```{r}
+fidenza_analysis <- fidenza |>
+  select(
+    fidenza,
+    token_id,
+    owner
+  ) |>
+  left_join(
+    rarity,
+    by = c(
+      "fidenza",
+      "token_id"
+    )
+  ) |>
+  left_join(
+    transfer_summary,
+    by = "fidenza"
+  ) |>
+  left_join(
+    holding_by_fidenza,
+    by = "fidenza"
+  )
+```
+
+Inspect:
+
+```{r}
+glimpse(fidenza_analysis)
+```
+
+Now each row represents one artwork:
+
+```text
+Fidenza
+token ID
+current owner
+rarity score
+number of transfers
+number of owners
+median historical holding period
+...
+```
+
+# Part III — The market {#part-iii}
+
+In Part II we reconstructed ERC-721 transfers. 
+
+A transfer, however, is not necessarily a sale:
+
+```text
+Transfer
+   ↓
+ownership changed
+
+Purchase
+   ↓
+ownership changed
+and money changed hands
+```
+
+A collector might simply transfer a Fidenza between two wallets that they control. Therefore, for market analysis, we need observations identified as purchases rather than all blockchain transfers.
+
+We will use OpenSea secondary market in this part.
+
+Go to [OpenSea](https://opensea.io/) and create an API key from: Settings → Developer → Get access → Create key.
+
+You may need to verify your email first and provide a brief intended use for the API. You can also connect through your crypto wallet. 
+
+
+
+```{r}
+opensea_key <- Sys.getenv("OPENSEA_API_KEY")
+
+get_fidenza_sales <- function(
+    api_key = Sys.getenv("OPENSEA_API_KEY"),
+    collection = "fidenza-by-tyler-hobbs",
+    limit = 200
+) {
+
+  cursor <- NULL
+  pages <- list()
+  page_number <- 1
+
+  repeat {
+
+    message(
+      "Downloading page ",
+      page_number,
+      "..."
+    )
+
+    req <- request(
+      str_c(
+        "https://api.opensea.io/api/v2/events/collection/",
+        collection
+      )
+    ) |>
+      req_headers(
+        `X-API-KEY` = api_key
+      ) |>
+      req_url_query(
+        event_type = "sale",
+        limit = limit
+      )
+
+    # From page 2 onward, add the pagination cursor
+    if (!is.null(cursor)) {
+      req <- req |>
+        req_url_query(
+          `next` = cursor
+        )
+    }
+
+    response <- req |>
+      req_perform() |>
+      resp_body_json(
+        simplifyVector = FALSE
+      )
+
+    events <- response$asset_events
+
+    # Stop if no events were returned
+    if (length(events) == 0) {
+      break
+    }
+
+    # Convert this page of events to a tibble
+    page <- map_dfr(
+      events,
+      function(event) {
+
+        tibble(
+          token_id =
+            as.numeric(
+              event$nft$identifier
+            ),
+
+          fidenza =
+            as.integer(
+              as.numeric(
+                event$nft$identifier
+              ) - 78000000
+            ),
+
+          time =
+            as.POSIXct(
+              as.numeric(
+                event$event_timestamp
+              ),
+              origin = "1970-01-01",
+              tz = "UTC"
+            ),
+
+          buyer =
+            str_to_lower(
+              event$buyer
+            ),
+
+          seller =
+            str_to_lower(
+              event$seller
+            ),
+
+          payment_symbol =
+            event$payment$symbol,
+
+          payment_decimals =
+            event$payment$decimals,
+
+          payment_quantity =
+            event$payment$quantity,
+
+          price =
+            as.numeric(
+              event$payment$quantity
+            ) /
+            10^event$payment$decimals,
+
+          transaction =
+            event$transaction
+        )
+      }
+    )
+
+    pages[[page_number]] <- page
+
+    # Cursor for the following page
+    cursor <- response$`next` 
+
+    # No cursor means that we have reached the last page
+    if (
+      is.null(cursor) ||
+      length(cursor) == 0 ||
+      cursor == ""
+    ) {
+      break
+    }
+
+    page_number <- page_number + 1
+  }
+
+  bind_rows(pages) |>
+    arrange(time)
+}
+```
+
+```{r eval=FALSE}
+sales <- get_fidenza_sales()
+write_csv(sales, "data/sales.csv")
+```
+
+```{r}
+sales <- read_csv("data/sales.csv")
+```
+
+The important part is:
+
+```r
+cursor <- response$next
+```
+
+OpenSea uses cursor-based pagination. The first request contains no cursor:
+
+```text
+request page 1
+       ↓
+response
+       ↓
+next = "abc123..."
+```
+
+We then send that value back:
+
+```r
+req_url_query(
+  next = cursor
+)
+```
+
+which effectively asks:
+
+```text
+"Continue from where the previous response stopped."
+```
+
+The next response gives us another cursor:
+
+```text
+page 1 → cursor A
+page 2 → cursor B
+page 3 → cursor C
+...
+last page → no cursor
+```
+
+The loop stops when `next` is absent. This is exactly the pagination procedure specified by OpenSea. 
+
+Now we get only the sales in ETH or WETH:
+
+```{r}
+sales <- sales |>
+  filter(
+    payment_symbol %in%
+      c(
+        "ETH",
+        "WETH"
+      )
+  ) 
+```
+
+Now inspect:
+
+```{r}
+sales
+```
+
+## Basic data checks
+
+Before analyzing the market, inspect the observations:
+
+```{r}
+sales |>
+  summarise(
+    sales =
+      n(),
+
+    fidenzas =
+      n_distinct(fidenza),
+
+    buyers =
+      n_distinct(buyer),
+
+    sellers =
+      n_distinct(seller),
+
+    missing_prices =
+      sum(is.na(price)),
+
+    zero_prices =
+      sum(
+        price <= 0,
+        na.rm = TRUE
+      )
+  )
+```
+
+Remove observations for which we do not have a meaningful positive price:
+
+```{r}
+sales <- sales |>
+  filter(
+    !is.na(price),
+    price > 0
+  )
+```
+
+We can also guard against duplicates:
+
+```{r}
+sales <- sales |>
+  distinct(
+    fidenza,
+    time,
+    buyer,
+    seller,
+    price,
+    .keep_all = TRUE
+  )
+```
+
+Finally select only colums useful for this lab:
+
+```{r}
+sales <- sales |>
+  select(
+    fidenza,
+    time,
+    buyer,
+    seller,
+    price
+  )
+```
+
+
+The combination of Fidenza, timestamp, buyer, seller and price should normally identify a sale sufficiently well for our purposes.
+
+---
+
+## How many Fidenzas have sold?
+
+```{r}
+sales |>
+  summarise(
+    fidenzas_sold =
+      n_distinct(fidenza),
+
+    share_sold =
+      n_distinct(fidenza) /
+      999
+  )
+```
+
+Notice that:
+
+```text
+999 Fidenzas exist
+```
+
+but not necessarily all 999 appear in the secondary-market purchase table.
+
+Some artworks may never have had a recorded secondary sale.
+
+---
+
+## Number of sales per Fidenza
+
+Calculate:
+
+```{r}
+sales_per_fidenza <- sales |>
+  count(
+    fidenza,
+    name = "n_sales"
+  )
+```
+
+Inspect the most frequently sold works:
+
+```{r}
+sales_per_fidenza |>
+  arrange(
+    desc(n_sales)
+  ) |>
+  slice_head(n = 10)
+```
+
+And visualize the distribution:
+
+```{r}
+sales_per_fidenza |>
+  ggplot(
+    aes(n_sales)
+  ) +
+  geom_histogram(
+    binwidth = 1,
+    boundary = 0
+  ) +
+  labs(
+    title =
+      "Number of secondary-market sales per Fidenza",
+    x = "Number of sales",
+    y = "Fidenzas"
+  ) +
+  theme_minimal()
+```
+
+This should be compared with the transfer distribution from Part II.
+
+The two concepts are different:
+
+```text
+transfers
+    all observed ownership movements
+
+sales
+    ownership movements associated
+    with a recorded purchase
+```
+
+---
+
+## Distribution of sale prices
+
+Start with numerical summaries:
+
+```{r}
+sales |>
+  summarise(
+    n =
+      n(),
+
+    mean =
+      mean(price),
+
+    median =
+      median(price),
+
+    q25 =
+      quantile(
+        price,
+        0.25
+      ),
+
+    q75 =
+      quantile(
+        price,
+        0.75
+      ),
+
+    q90 =
+      quantile(
+        price,
+        0.90
+      ),
+
+    q99 =
+      quantile(
+        price,
+        0.99
+      ),
+
+    minimum =
+      min(price),
+    
+    maximum =
+      max(price)
+    
+  )
+```
+
+NFT prices are usually strongly skewed.
+
+Therefore, comparing the mean with the median is important.
+
+A few exceptionally large sales can make:
+
+\[
+\text{mean price}
+\]
+
+much larger than:
+
+\[
+\text{median price}.
+\]
+
+---
+
+## Visualize sale prices
+
+```{r}
+sales |>
+  ggplot(
+    aes(price)
+  ) +
+  geom_histogram(
+    bins = 50
+  ) +
+  #scale_x_log10() +
+  labs(
+    title =
+      "Distribution of Fidenza sale prices",
+    x =
+      "Sale price (ETH)",
+    y =
+      "Sales"
+  ) +
+  theme_minimal()
+```
+
+---
+
+## The most expensive observed sales
+
+```{r}
+sales |>
+  slice_max(
+    price,
+    n = 10
+  ) |>
+  select(
+    fidenza,
+    time,
+    price,
+    buyer,
+    seller
+  )
+```
+
+This immediately suggests an interesting question for Part IV:
+
+> Are the most expensive Fidenzas also the rarest according to our trait-based rarity score?
+
+There is no reason a priori why they must be.
+
+---
+
+## The market through time
+
+Aggregate sales by month:
+
+```{r}
+market_monthly <- sales |>
+  mutate(
+    month =
+      floor_date(
+        time,
+        unit = "month"
+      )
+  ) |>
+  summarise(
+    sales =
+      n(),
+
+    fidenzas =
+      n_distinct(fidenza),
+
+    volume_eth =
+      sum(price),
+
+    mean_price =
+      mean(price),
+
+    median_price =
+      median(price),
+
+    .by = month
+  ) |>
+  arrange(month)
+
+market_monthly
+
+```
+
+---
+
+## Sales activity through time
+
+```{r}
+market_monthly |>
+  ggplot(
+    aes(
+      x = month,
+      y = sales
+    )
+  ) +
+  geom_col() +
+  labs(
+    title =
+      "Fidenza secondary-market activity",
+    x = NULL,
+    y = "Sales per month"
+  ) +
+  theme_minimal()
+```
+
+This graph measures activity.
+
+It does not measure how much ETH changed hands.
+
+---
+
+## Trading volume
+
+Trading volume is:
+
+\[
+V_t
+=
+\sum_{i=1}^{n_t} P_i,
+\]
+
+where \(P_i\) is the ETH price of each sale during period \(t\).
+
+We already calculated it as:
+
+```r
+volume_eth =
+  sum(price)
+```
+
+Plot it:
+
+```{r}
+market_monthly |>
+  ggplot(
+    aes(
+      x = month,
+      y = volume_eth
+    )
+  ) +
+  geom_col() +
+  labs(
+    title =
+      "Fidenza secondary-market volume",
+    x = NULL,
+    y = "Volume (ETH)"
+  ) +
+  theme_minimal()
+```
+
+A month can have many sales but relatively little volume.
+
+Conversely, a small number of very expensive sales can produce enormous volume.
+
+---
+
+## Median price through time
+
+```{r}
+market_monthly |>
+  ggplot(
+    aes(
+      x = month,
+      y = median_price
+    )
+  ) +
+  geom_line() +
+  labs(
+    title =
+      "Median Fidenza sale price",
+    x = NULL,
+    y = "Median price (ETH)"
+  ) +
+  theme_minimal()
+```
+
+For this market I prefer the median to the mean because it is less affected by exceptionally expensive works.
+
+There is nevertheless an important limitation.
+
+Some months may contain only a few sales. A median calculated from three observations should not be interpreted as a precise market-price index.
+
+We can inspect this directly:
+
+```{r}
+market_monthly |>
+  filter(
+    sales < 5
+  )
+```
+
+---
+
+## Build a market summary for every Fidenza
+
+We eventually want to combine market data with the artwork characteristics.
+
+First summarize the market history of each work:
+
+```{r}
+market_by_fidenza <- sales |>
+  arrange(
+    fidenza,
+    time
+  ) |>
+  summarise(
+    n_sales =
+      n(),
+
+    first_sale =
+      first(time),
+
+    last_sale =
+      last(time),
+
+    mean_price =
+      mean(price),
+
+    median_price =
+      median(price),
+
+    last_price =
+      last(price),
+
+    maximum_price =
+      max(price),
+
+    volume_eth =
+      sum(price),
+
+    .by = fidenza
+  )
+
+market_by_fidenza |> 
+  arrange(-n_sales)
+```
+
+Now one row again represents one artwork.
+
+---
+
+## Join the market data to Parts I and II
+
+Recall that in the previous lab we created:
+
+```r
+fidenza_analysis
+```
+
+containing one row for each Fidenza with variables such as:
+
+```text
+fidenza
+token_id
+owner
+rarity_score
+transfers_after_mint
+distinct_owners
+median_holding_days
+```
+
+Join the market information:
+
+```{r}
+fidenza_market <-
+  fidenza_analysis |>
+  left_join(
+    market_by_fidenza,
+    by = "fidenza"
+  ) |>
+  mutate(
+    n_sales =
+      replace_na(
+        n_sales,
+        0L
+      )
+  )
+```
+
+Why replace missing `n_sales` with zero?
+
+If a Fidenza does not appear in `market_by_fidenza`, it means that we did not observe a secondary-market sale for it.
+
+Therefore:
+
+```text
+NA number of sales
+```
+
+really means:
+
+```text
+0 observed sales
+```
+
+But we should not replace missing prices with zero.
+
+A Fidenza that has never sold does not have a market price of zero.
+
+Its market price is simply unobserved.
+
+---
+
+## Repeat sales
+
+### Why repeat sales are useful
+
+Every Fidenza is unique.
+
+Comparing:
+
+```text
+Fidenza #10 at 50 ETH
+```
+
+with:
+
+```text
+Fidenza #500 at 100 ETH
+```
+
+does not automatically imply that prices doubled.
+
+They are different artworks.
+
+Repeat sales allow us to compare the same object through time:
+
+```text
+Fidenza #10
+
+sale 1 → 20 ETH
+sale 2 → 50 ETH
+sale 3 → 35 ETH
+```
+
+This controls automatically for all characteristics of that particular artwork that do not change through time.
+
+---
+
+## Construct consecutive sale pairs
+
+Sort sales within each Fidenza:
+
+```{r}
+repeat_sales <- sales |>
+  arrange(
+    fidenza,
+    time
+  ) |>
+  group_by(fidenza) |>
+  mutate(
+    sale_number =
+      row_number(),
+
+    previous_time =
+      lag(time),
+
+    previous_price =
+      lag(price),
+
+    days_between_sales =
+      as.numeric(
+        difftime(
+          time,
+          previous_time,
+          units = "days"
+        )
+      ),
+
+    simple_return =
+      price /
+      previous_price -
+      1,
+
+    log_return =
+      log(
+        price /
+        previous_price
+      )
+  ) |>
+  ungroup() |>
+  filter(
+    sale_number > 1
+  )
+
+```
+
+The crucial function here is:
+
+```r
+lag()
+```
+
+Within each Fidenza, it moves the previous observation onto the current row.
+
+Conceptually:
+
+```text
+sale   price   previous price
+1       20          NA
+2       50          20
+3       35          50
+```
+
+The first sale cannot have a repeat-sale return because we have no previous sale.
+
+Let's check what happened for fidenza #89, which had 8 sales so far:
+
+```{r}
+repeat_sales |> 
+  filter(fidenza == 89) |> 
+  select(time, sale_number, price, previous_price, simple_return, log_return)
+
+```
+
+
+---
+
+## Returns
+
+The simple return is:
+
+\[
+R
+=
+\frac{P_t}{P_{t-1}}-1.
+\]
+
+If a Fidenza moves from:
+
+```text
+20 ETH → 30 ETH
+```
+
+then:
+
+\[
+R
+=
+\frac{30}{20}-1
+=
+0.5.
+\]
+
+The return is 50%.
+
+We also calculate the logarithmic return:
+
+\[
+r
+=
+\log
+\left(
+\frac{P_t}{P_{t-1}}
+\right).
+\]
+
+Log returns are often convenient for statistical analysis.
+
+---
+
+## Summarize repeat sales
+
+```{r}
+repeat_sales |>
+  summarise(
+    repeat_sales =
+      n(),
+
+    fidenzas =
+      n_distinct(fidenza),
+
+    median_days =
+      median(
+        days_between_sales,
+        na.rm = TRUE
+      ),
+
+    median_return =
+      median(
+        simple_return,
+        na.rm = TRUE
+      ),
+
+    fraction_positive =
+      mean(
+        simple_return > 0,
+        na.rm = TRUE
+      )
+  )
+```
+
+The last statistic answers:
+
+> Among consecutive observed sales, what proportion occurred at a higher ETH price than the previous sale?
+
+---
+
+## Previous versus subsequent prices
+
+```{r}
+repeat_sales |>
+  # revove outliers
+  filter(price > 0.01, previous_price > 0.01) |> 
+  ggplot(
+    aes(
+      x = previous_price,
+      y = price
+    )
+  ) +
+  geom_point(
+    alpha = 0.5
+  ) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed"
+  ) +
+  scale_x_log10() +
+  scale_y_log10() +
+  coord_equal() +
+  labs(
+    title =
+      "Repeat sales of Fidenza",
+    x =
+      "Previous sale price (ETH)",
+    y =
+      "Next sale price (ETH)"
+  ) +
+  theme_minimal()
+```
+
+The dashed line represents:
+
+\[
+P_t=P_{t-1}.
+\]
+
+Therefore:
+
+```text
+above the line
+→ price increased
+
+below the line
+→ price decreased
+```
+
+---
+
+## One important distinction
+
+The variable:
+
+```r
+days_between_sales
+```
+
+is not necessarily the same thing as the holding period calculated in Part II.
+
+For example:
+
+```text
+sale
+ ↓
+wallet A
+ ↓
+ordinary transfer
+ ↓
+wallet B
+ ↓
+sale
+```
+
+The time between the two sales includes two different owners.
+
+Part II reconstructed actual ownership spells.
+
+Part III measures time between observed market transactions.
+
+These answer different questions.
+
+---
+
+# Part IV — Art and value {#part-iv}
+
+We can now bring the art and the market together.
+
+The central question is:
+
+> Are visual characteristics generated by the Fidenza algorithm associated with market prices?
+
+Our analysis should be interpreted as an analysis of association, not causation.
+
+---
+
+## Start with rarity
+
+In Part I we constructed:
+
+```r
+rarity
+```
+
+with variables:
+
+```text
+fidenza
+token_id
+rarity_score
+rarity_percentile
+```
+
+Join rarity onto every sale:
+
+```{r}
+sales_art <- sales |>
+  left_join(
+    rarity |>
+      select(
+        fidenza,
+        rarity_score,
+        rarity_percentile
+      ),
+    by = "fidenza"
+  )
+```
+
+Now every market observation also knows the rarity of the corresponding artwork.
+
+---
+
+## Price versus rarity
+
+Create the logarithm of price:
+
+```{r}
+sales_art <- sales_art |>
+  mutate(
+    log_price =
+      log(price)
+  )
+```
+
+
+
+Then:
+
+```{r}
+sales_art |>
+  ggplot(
+    aes(
+      x = rarity_score,
+      y = log_price
+    )
+  ) +
+  geom_point(
+    alpha = 0.4
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = TRUE
+  ) +
+  labs(
+    title =
+      "Does rarity relate to Fidenza prices?",
+    x =
+      "Rarity score",
+    y =
+      "Log sale price (ETH)"
+  ) +
+  theme_minimal()
+```
+
+Why use:
+
+```r
+log(price)
+```
+
+instead of the raw price?
+
+Because Fidenza prices are strongly right-skewed.
+
+Taking logarithms reduces the influence of extremely expensive observations and often produces a relationship that is easier to model statistically.
+
+---
+
+## Divide Fidenzas into rarity groups
+
+A simpler descriptive analysis is to divide rarity into quartiles.
+
+```{r}
+sales_art <- sales_art |>
+  mutate(
+    rarity_group =
+      ntile(
+        rarity_score,
+        4
+      ),
+
+    rarity_group =
+      factor(
+        rarity_group,
+        labels =
+          c(
+            "Q1: least rare",
+            "Q2",
+            "Q3",
+            "Q4: rarest"
+          )
+      )
+  )
+
+count(sales_art, rarity_group)
+```
+
+Now compare prices:
+
+```{r}
+sales_art |>
+  ggplot(
+    aes(
+      x = rarity_group,
+      y = price
+    )
+  ) +
+  geom_boxplot() +
+  scale_y_log10() +
+  labs(
+    title =
+      "Fidenza prices by rarity quartile",
+    x = NULL,
+    y = "Sale price (ETH)"
+  ) +
+  theme_minimal()
+```
+
+This visualization requires very little statistical machinery and provides a useful first answer to:
+
+> Do rare Fidenzas tend to command higher prices?
+
+---
+
+## Turn traits into columns
+
+Recall that our `traits` object has tidy long form:
+
+```text
+fidenza    trait          value
+0          Scale          ...
+0          Density        ...
+0          Turbulence     ...
+...
+```
+
+For regression we need variables in columns.
+
+Select some traits:
+
+```{r}
+traits_wide <- traits |>
+  filter(
+    trait %in%
+      c(
+        "Scale",
+        "Density",
+        "Turbulence",
+        "Outlined",
+        "Soft Shapes"
+      )
+  ) |>
+  select(
+    fidenza,
+    trait,
+    value
+  ) |>
+  distinct() |>
+  pivot_wider(
+    names_from = trait,
+    values_from = value
+  ) |>
+  rename(
+    scale = Scale,
+    density = Density,
+    turbulence = Turbulence,
+    outlined = Outlined,
+    soft_shapes = `Soft Shapes`
+  )
+```
+
+We have transformed:
+
+```text
+long format
+
+fidenza   trait       value
+10        Scale       ...
+10        Density     ...
+```
+
+into:
+
+```text
+wide format
+
+fidenza   scale   density   turbulence   outlined ...
+10        ...     ...       ...          ...
+```
+
+Wide format is convenient for regression models.
+
+---
+
+## Add traits to the sales table
+
+```{r}
+sales_art <- sales_art |>
+  left_join(
+    traits_wide,
+    by = "fidenza"
+  )
+```
+
+
+
+Now each sale contains three kinds of information:
+
+```text
+MARKET
+
+price
+date
+buyer
+seller
+
+        +
+
+RARITY
+
+rarity score
+
+        +
+
+ART
+
+Scale
+Density
+Turbulence
+Outlined
+Soft Shapes
+```
+
+This is the dataset we need for Part IV.
+
+---
+
+## Time is a confounding variable
+
+Before fitting a model, consider the following possibility.
+
+Suppose Fidenza prices were:
+
+```text
+low in 2021
+very high in 2022
+lower later
+```
+
+and suppose rarer Fidenzas happened to sell more often during the high-price period.
+
+We could observe:
+
+```text
+rarity ↔ high price
+```
+
+even if rarity itself had no relationship with value.
+
+We therefore need to account for time.
+
+Create a sale-year variable:
+
+```{r}
+sales_art <- sales_art |>
+  mutate(
+    sale_year =
+      factor(
+        year(time)
+      )
+  )
+```
+
+A factor is appropriate because we do not want to assume that prices change linearly from one year to another.
+
+---
+
+## Standardize the rarity score
+
+```{r}
+sales_art <- sales_art |>
+  mutate(
+    rarity_z =
+      as.numeric(
+        scale(
+          rarity_score
+        )
+      )
+  )
+```
+
+This transforms rarity to:
+
+\[
+z_i
+=
+\frac{
+R_i-\bar R
+}{
+s_R
+}.
+\]
+
+Therefore:
+
+```text
+rarity_z = 0
+```
+
+means average rarity.
+
+And:
+
+```text
+rarity_z = 1
+```
+
+means one standard deviation above average.
+
+This makes the regression coefficient easier to interpret.
+
+---
+
+##  Model 1 — rarity and price
+
+Fit:
+
+```{r}
+model_rarity <- lm(
+  log_price ~
+    rarity_z +
+    sale_year,
+  data = sales_art
+)
+```
+
+Inspect:
+
+```{r}
+summary(
+  model_rarity
+)
+```
+
+Conceptually, the model is:
+
+\[
+\log(P_i)
+=
+\beta_0
++
+\beta_1 R_i
++
+\gamma_t
++
+\varepsilon_i.
+\]
+
+Here:
+
+\[
+P_i
+\]
+
+is the sale price in ETH,
+
+\[
+R_i
+\]
+
+is standardized rarity,
+
+and:
+
+\[
+\gamma_t
+\]
+
+represents year effects.
+
+The coefficient of particular interest is:
+
+\[
+\beta_1.
+\]
+
+It measures the association between rarity and price, *controlling for the year* in which the sale occurred.
+
+---
+
+## Interpret the rarity coefficient
+
+Install and load `broom` if necessary:
+
+```{r}
+library(broom)
+```
+
+Extract the result:
+
+```{r}
+rarity_effect <- tidy(
+  model_rarity,
+  conf.int = TRUE
+) 
+
+rarity_effect
+
+rarity_effect |>
+  filter(
+    term == "rarity_z"
+  ) |>
+  mutate(
+    percent_difference =
+      100 *
+      (
+        exp(estimate) - 1
+      ),
+
+    percent_low =
+      100 *
+      (
+        exp(conf.low) - 1
+      ),
+
+    percent_high =
+      100 *
+      (
+        exp(conf.high) - 1
+      )
+  )
+
+rarity_effect |>
+  filter(str_starts(term, "sale")) |>
+  mutate(percent_difference = 100 * (exp(estimate) - 1)) |> 
+  select(term, estimate, percent_difference)
+
+```
+
+Because the dependent variable is logarithmic, we convert the coefficient back to a percentage using:
+
+\[
+100(e^\beta-1).
+\]
+
+For example, suppose we obtained:
+
+```text
+percent_difference = 15
+```
+
+We would say:
+
+> A one-standard-deviation increase in our rarity score is associated with approximately a 15% higher sale price in ETH, controlling for sale year.
+
+We should say:
+
+```text
+associated with
+```
+
+rather than:
+
+```text
+causes
+```
+
+because this is an observational study.
+
+The coefficients for sale years compares sales in a given with the reference year 2021, holding rarity constant.
+
+---
+
+##  Model 2 — individual traits
+
+Now investigate whether particular generated characteristics are associated with price.
+
+```{r}
+model_traits <- lm(
+  log_price ~
+    scale +
+    density +
+    turbulence +
+    outlined +
+    soft_shapes +
+    sale_year,
+  data = sales_art
+)
+```
+
+Then:
+
+```{r}
+summary(
+  model_traits
+)
+```
+
+The traits are categorical variables.
+
+R automatically converts them to indicator variables.
+
+Suppose `Scale` has several categories. One category becomes the reference category.
+
+The coefficient for another category answers:
+
+> How does expected log price differ from the reference Scale category, controlling for the other traits and sale year?
+
+---
+
+##  Convert trait coefficients to percentages
+
+```{r}
+trait_effects <- tidy(
+  model_traits,
+  conf.int = TRUE
+) |>
+  filter(
+    term != "(Intercept)",
+    !str_starts(
+      term,
+      "sale_year"
+    )
+  ) |>
+  mutate(
+    percent_difference =
+      100 *
+      (
+        exp(estimate) - 1
+      ),
+
+    percent_low =
+      100 *
+      (
+        exp(conf.low) - 1
+      ),
+
+    percent_high =
+      100 *
+      (
+        exp(conf.high) - 1
+      )
+  )
+
+trait_effects
+
+filter(trait_effects, p.value < 0.05)
+```
+
+Suppose one coefficient gives:
+
+```text
+percent_difference = 25
+```
+
+Its interpretation is approximately:
+
+> This trait category is associated with a 25% higher sale price than the reference category, holding the other variables constant.
+
+If:
+
+```text
+percent_difference = -20
+```
+
+then the corresponding price is approximately 20% lower.
+
+---
+
+## Visualize the estimated trait effects
+
+```{r}
+trait_effects |>
+  ggplot(
+    aes(
+      x = reorder(
+        term,
+        percent_difference
+      ),
+      y = percent_difference
+    )
+  ) +
+  geom_point() +
+  geom_errorbar(
+    aes(
+      ymin = percent_low,
+      ymax = percent_high
+    ),
+    width = 0
+  ) +
+  coord_flip() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  labs(
+    title =
+      "Estimated Fidenza trait price differences",
+    x = NULL,
+    y =
+      "Estimated difference in price (%)"
+  ) +
+  theme_minimal()
+```
+
+The vertical confidence intervals tell us about uncertainty.
+
+An estimated effect might be large but very uncertain if only a few artworks possess that trait.
+
+This is particularly important for genuinely rare traits.
+
+---
+
+## Compare the rarity and trait models
+
+Use:
+
+```{r}
+model_comparison <- bind_rows(
+  rarity =
+    glance(
+      model_rarity
+    ),
+
+  traits =
+    glance(
+      model_traits
+    ),
+
+  .id = "model"
+) |>
+  select(
+    model,
+    nobs,
+    r.squared,
+    adj.r.squared,
+    sigma,
+    AIC
+  )
+
+model_comparison
+```
+
+The coefficient:
+
+```text
+R²
+```
+
+measures the fraction of variation in log sale prices explained by the model.
+
+The adjusted \(R^2\) accounts for the fact that the trait model contains more explanatory variables.
+
+We should not necessarily expect a high \(R^2\).
+
+Formal traits are only one possible component of an artwork's market value.
+
+Other influences may include:
+
+```text
+overall composition
+aesthetic preference
+collector reputation
+provenance
+previous sales
+market conditions
+attention
+historical importance
+```
+
+A low \(R^2\) can therefore itself be an informative result.
+
+---
+
+##  Why not put rarity and traits in the same model?
+
+Recall how we constructed rarity.
+
+The rarity score is calculated from the frequencies of the traits.
+
+Therefore:
+
+```text
+Scale ─────┐
+Density ───┤
+Colors ────┤
+Outlined ──┤
+...        │
+           ↓
+      rarity score
+```
+
+Rarity and the individual traits contain overlapping information.
+
+Putting:
+
+```r
+rarity_z +
+scale +
+density +
+turbulence +
+...
+```
+
+into the same regression makes the coefficients harder to interpret and can introduce multicollinearity.
+
+For this lab, comparing two models is cleaner:
+
+```text
+MODEL 1
+
+price ~ rarity + time
+
+
+MODEL 2
+
+price ~ traits + time
+```
+
+---
+
+## A statistical complication: repeated sales
+
+Our dataset has one row per sale, not one row per Fidenza.
+
+Therefore one artwork may appear repeatedly:
+
+```text
+Fidenza #42     sale 1
+Fidenza #42     sale 2
+Fidenza #42     sale 3
+```
+
+Those observations are not completely independent.
+
+They share exactly the same:
+
+```text
+traits
+rarity
+artwork
+```
+
+Ordinary `lm()` ignores this dependence.
+
+For an introductory lab, this is acceptable provided we explicitly acknowledge the limitation.
+
+A more advanced analysis could use:
+
+```text
+cluster-robust standard errors
+mixed-effects models
+repeat-sales models
+```
+
+---
+
+##  A simpler artwork-level model
+
+There is another useful approach for students.
+
+Instead of using every sale, keep only the latest observed sale of each Fidenza:
+
+```{r}
+latest_sales <- sales |>
+  group_by(fidenza) |>
+  slice_max(
+    time,
+    n = 1,
+    with_ties = FALSE
+  ) |>
+  ungroup()
+```
+
+Now each artwork appears at most once.
+
+Add rarity and traits:
+
+```{r}
+latest_sales_art <- latest_sales |>
+  left_join(
+    rarity |>
+      select(
+        fidenza,
+        rarity_score
+      ),
+    by = "fidenza"
+  ) |>
+  left_join(
+    traits_wide,
+    by = "fidenza"
+  ) |>
+  mutate(
+    log_price =
+      log(price),
+
+    sale_year =
+      factor(
+        year(time)
+      ),
+
+    rarity_z =
+      as.numeric(
+        scale(
+          rarity_score
+        )
+      )
+  )
+```
+
+Then:
+
+```{r}
+model_latest <- lm(
+  log_price ~
+    rarity_z +
+    sale_year,
+  data = latest_sales_art
+)
+
+summary(model_latest)
+```
+
+```{r}
+rarity_effect_latest <- tidy(
+  model_latest,
+  conf.int = TRUE
+) 
+
+rarity_effect_latest |>
+  filter(
+    term == "rarity_z"
+  ) |>
+  mutate(
+    percent_difference =
+      100 *
+      (
+        exp(estimate) - 1
+      ),
+
+    percent_low =
+      100 *
+      (
+        exp(conf.low) - 1
+      ),
+
+    percent_high =
+      100 *
+      (
+        exp(conf.high) - 1
+      )
+  )
+
+```
+
+This version has a particularly simple interpretation:
+
+```text
+one artwork
+=
+one observation
+```
+
+It avoids the repeated-observation problem, although it introduces a different limitation: the latest sale occurs at different dates for different Fidenzas.
+
+I would present this as a robustness exercise rather than replacing the main model.
+
+
+---
+
+## Another important limitation: selection
+
+A Fidenza enters our regression only if it has been sold.
+
+Suppose extremely desirable Fidenzas are held by long-term collectors who almost never sell them.
+
+Those works may be absent from the market dataset.
+
+Consequently, our model answers:
+
+> Among observed secondary-market sales, how are rarity and traits associated with sale prices?
+
+It does not answer:
+
+> What is the true market value of every Fidenza?
+
+Market prices are observed only when owners decide to sell.
+
+This is a form of selection.
+
+---
+
+## ETH is itself a changing unit of value
+
+Our dependent variable is:
+
+```text
+price in ETH
+```
+
+This is natural for an Ethereum-native NFT market.
+
+But ETH itself changes substantially in dollar value.
+
+For example:
+
+```text
+50 ETH at one point in time
+```
+
+and:
+
+```text
+50 ETH two years later
+```
+
+may correspond to very different USD values.
+
+This means there are really two interesting questions:
+
+```text
+How did Fidenza prices behave in ETH?
+
+and
+
+How did Fidenza prices behave in USD?
+```
+
+For this lab we concentrate on ETH so that all market data come from one free Art Blocks source.
+
+An optional extension would join each sale date to a historical ETH/USD series and calculate:
+
+\[
+P_{USD}
+=
+P_{ETH}
+\times
+ETHUSD.
+\]
+
+
+---
+
+## Create the final Fidenza dataset
+
+We can now combine everything from all four parts.
+
+Start with:
+
+```{r}
+fidenza_complete <-
+  fidenza_analysis |>
+  left_join(
+    market_by_fidenza,
+    by = "fidenza"
+  ) |>
+  left_join(
+    traits_wide,
+    by = "fidenza"
+  ) |>
+  mutate(
+    n_sales =
+      replace_na(
+        n_sales,
+        0L
+      )
+  )
+```
+
+
+Each row now represents one of the 999 artworks.
+
+Its variables cover four different dimensions:
+
+```text
+ART
+
+traits
+rarity
+
+
+OWNERSHIP
+
+current owner
+number of owners
+transfers
+holding periods
+
+
+MARKET
+
+number of sales
+first sale
+last sale
+median price
+maximum price
+volume
+
+
+VALUE
+
+variables suitable
+for statistical modeling
+```
+
+This is the final analytical dataset for the Fidenza project.
+
+---
+
+## The complete project
+
+The four parts now fit together as:
+
+```text
+PART I — THE ART
+
+Art Blocks metadata
+       ↓
+traits
+       ↓
+frequencies
+       ↓
+rarity
+
+
+PART II — THE OWNERS
+
+blockchain transfers
+       ↓
+provenance
+       ↓
+holding periods
+       ↓
+current ownership
+       ↓
+concentration
+
+
+PART III — THE MARKET
+
+Art Blocks purchases
+       ↓
+sales
+       ↓
+prices
+       ↓
+volume
+       ↓
+repeat sales
+
+
+PART IV — ART AND VALUE
+
+traits + rarity + sales
+          ↓
+descriptive comparisons
+          ↓
+regression models
+          ↓
+interpretation + limitations
+```
+
+This progression is useful because each part introduces a different data-science idea while staying focused on the same 999 objects.
+
+Part I asks what the artworks are.
+
+Part II asks where they went.
+
+Part III asks when money changed hands.
+
+Part IV asks whether measurable properties of the artworks are associated with what collectors paid for them.
+

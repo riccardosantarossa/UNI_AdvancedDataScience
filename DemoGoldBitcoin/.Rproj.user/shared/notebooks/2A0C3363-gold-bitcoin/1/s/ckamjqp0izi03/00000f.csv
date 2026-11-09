@@ -1,0 +1,6 @@
+"0","common_prices_long <- common_prices |>"
+"0","  pivot_longer("
+"0","    cols = c(Bitcoin, Gold, Dollar),"
+"0","    names_to = ""asset"","
+"0","    values_to = ""price"""
+"0","  )"

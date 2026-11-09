@@ -1,0 +1,6 @@
+"0","fidenza |>"
+"0","  summarise("
+"0","    artworks = n(),"
+"0","    first = min(fidenza),"
+"0","    last = max(fidenza)"
+"0","  )"

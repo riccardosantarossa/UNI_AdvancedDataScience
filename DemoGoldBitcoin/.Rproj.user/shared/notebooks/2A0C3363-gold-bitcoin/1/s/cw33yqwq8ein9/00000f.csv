@@ -1,0 +1,5 @@
+"0","risk_free <- risk_free |>"
+"0","  mutate("
+"0","    rf_daily ="
+"0","      (1 + rf_annual / 100)^(1 / 252) - 1"
+"0","  )"

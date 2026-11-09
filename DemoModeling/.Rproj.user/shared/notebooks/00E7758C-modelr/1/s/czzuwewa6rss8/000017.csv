@@ -1,0 +1,3 @@
+"0",""
+"0","# add residuals to the model"
+"0","(sim1 <- add_residuals(sim1, mod1))"

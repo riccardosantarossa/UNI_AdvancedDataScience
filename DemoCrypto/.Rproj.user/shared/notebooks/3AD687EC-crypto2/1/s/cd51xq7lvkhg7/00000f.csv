@@ -1,0 +1,8 @@
+"0","bitcoin |>"
+"0","  ggplot(aes(x = timestamp, y = close)) +"
+"0","  geom_line() +"
+"0","  labs("
+"0","    title = ""Bitcoin price"","
+"0","    x = NULL,"
+"0","    y = ""Price (USD)"""
+"0","  )"

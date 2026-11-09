@@ -1,0 +1,61 @@
+---
+title: "Demo_Markdown"
+output: html_document
+date: "2026-10-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, eval= TRUE, cache = TRUE)
+```
+
+## La domanda
+
+Si vuole investigare la correlazione tra due variabili generate mediante distribuzione normale. La seconda variabile è stata modificata aggiungendo alla prima del **rumore**.
+
+```{r cars}
+#Variabili
+set.seed(16)
+x = rnorm(500)
+y = x + runif(500)
+```
+
+```{r}
+#Costruzione del DataFrame
+dataFrame = data.frame(x,y)
+```
+
+**Media** delle due variabili
+
+```{r}
+mean(dataFrame$x)
+mean(dataFrame$y)
+```
+
+**Istogramma della variabile x**
+```{r}
+hist(x)
+```
+
+**BoxPlot della variabile y**
+```{r}
+boxplot(y, range = 1.25)
+```
+
+**Grafico a dispersione con entrambe le variabili**
+```{r}
+plot(x,y)
+```
+
+**Correlazione tra x e y**
+```{r}
+cor(x,y)
+```
+
+**Interpretazione**
+
+Dai grafici ottenuti rappresentando graficamente x e y si può concludere che la variabile x, essendo costituita a partire da una distribuzione normale, segue l'andamento canonico centrato nella media calcolata in precedenza.
+
+Per quanto riguarda la variabile y, una volta rappresentata con un boxplot con IQR pari a 1.25, sono presenti degli outlier, sia al di sopra che al di sotto dei baffi.
+
+Infine, una volta creato lo scatterplot che comprende sia x che y, si nota come tra le due variabili sia presente una *correlazione p
+

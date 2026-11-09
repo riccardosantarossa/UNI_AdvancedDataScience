@@ -1,0 +1,4 @@
+"0",""
+"0","# histogram of residuals (mean is always 0)"
+"0","ggplot(sim1, aes(resid)) + "
+"0","  geom_freqpoly(binwidth = 0.5)"

@@ -1,0 +1,6 @@
+"0","graph_url <- str_c("
+"0","  ""https://gateway-arbitrum.network.thegraph.com/api/"","
+"0","  graph_api_key,"
+"0","  ""/subgraphs/id/"","
+"0","  ""6bR1oVsRUUs6czNiB6W7NNenTXtVfNd5iSiwvS4QbRPB"""
+"0",")"

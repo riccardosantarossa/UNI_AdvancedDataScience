@@ -1,0 +1,3 @@
+"0","trait_frequency |>"
+"0","  filter(trait == ""Scale"") |>"
+"0","  arrange(desc(frequency))"

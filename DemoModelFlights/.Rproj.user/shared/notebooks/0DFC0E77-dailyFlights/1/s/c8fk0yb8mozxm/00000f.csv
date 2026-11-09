@@ -1,0 +1,6 @@
+"0","mod <- lm(n ~ wday, data = daily)"
+"0",""
+"0","grid <- daily %>% "
+"0","  data_grid(wday) %>% "
+"0","  add_predictions(mod, ""n"")"
+"0","grid "

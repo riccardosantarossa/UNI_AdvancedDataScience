@@ -1,0 +1,4 @@
+"0","bitcoin <- bitcoin |>"
+"0","  select(timestamp, open, high, low, close, volume, market_cap)"
+"0",""
+"0","bitcoin"

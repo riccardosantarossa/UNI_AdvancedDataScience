@@ -1,0 +1,6 @@
+"0",""
+"0","# scatterplot of residuals (plot residuals as outcomes)"
+"0","ggplot(sim1, aes(x, resid)) + "
+"0","  geom_ref_line(h = 0) +"
+"0","  geom_point() "
+"0",""

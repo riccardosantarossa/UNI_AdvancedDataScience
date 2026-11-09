@@ -1,0 +1,177 @@
+---
+title: "The Brantly Millegan case"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+```
+
+[ENS DAO](https://ensdao.org/) is the decentralized autonomous organization governing the protocol Ethereum Name Service (ENS). [ENS](https://ens.domains/) is a protocol on Ethereum that maps human-readable domain names (e.g., hex6c.eth) to blockchain addresses and other metadata. 
+
+In early 2022 the DAO of ENS submitted on [Snapshot](https://snapshot.org) (an off-chain voting platform widely used by DAOs) the [proposal](https://snapshot.org/#/s:ens.eth/proposal/0xa9a2dc5a52ea54b478c4c5fea88540622dff7ad5000f8d146dff482c6e6b6055) "*Removal of Brantly Millegan as Director of The ENS Foundation*". The proposal seeks to remove Brantly Millegan as Director of The ENS Foundation due to his publicly held controversial views on social issues that are viewed as hateful and discriminatory. 
+
+
+## Collect data
+
+Let's collect the voting data of the proposal using [GraphQL](https://graphql.org/). 
+
+GraphQL (Graph Query Language) is a language for querying and manipulating data through APIs. It was developed by Facebook in 2012 and released as an open-source project in 2015.
+
+1. A GraphQL API exposes a schema describing the available data types, their fields, and the relationships between them.
+2. A client sends a query to a GraphQL server, which processes the request and returns the requested data, typically in JSON format.
+
+The following query retrieves the votes casted by the voters:
+
+```
+query Votes {
+  votes(
+    where: {
+      proposal: "0xa9a2dc5a52ea54b478c4c5fea88540622dff7ad5000f8d146dff482c6e6b6055"
+    }
+    first: 1000
+    orderBy: "vp"
+    orderDirection: desc
+  ) {
+    voter
+    choice
+    vp
+  }
+}
+```
+
+1. Run the query on the [Snapshot GraphQL API](https://hub.snapshot.org/graphql) ([API documentation](https://docs.snapshot.box/tools/api))  
+2. Save the result in a JSON file called `voting.json`.
+
+```{r eval=FALSE}
+library(tidyverse)
+library(jsonlite)
+
+# get a tibble from JSON file
+json <- fromJSON("voting.json", flatten = TRUE)
+votes = as_tibble(json$data$votes)
+
+# save as CSV
+write_csv(votes, file = "votes.csv")
+```
+
+Or use GraphQL programmatically:
+
+```{r eval=FALSE}
+library(tidyverse)
+library(httr2)
+
+# Define the GraphQL query
+query <- '
+query Votes {
+  votes(
+    where: {
+      proposal: "0xa9a2dc5a52ea54b478c4c5fea88540622dff7ad5000f8d146dff482c6e6b6055"
+    }
+    first: 1000
+    orderBy: "vp"
+    orderDirection: desc
+  ) {
+    voter
+    choice
+    vp
+  }
+}
+'
+
+# Send the query
+response <- 
+  request("https://hub.snapshot.org/graphql") |>
+  req_body_json(
+    list(query = query)
+  ) |>
+  req_perform() |>
+  resp_body_json(
+    simplifyVector = TRUE
+  )
+
+# Get the votes
+votes = as_tibble(response$data$votes)
+
+# Save as CSV
+write_csv(votes, "votes.csv")
+
+```
+
+
+
+## Concentration of voting power
+
+Let's investigate the concentration of voting power for both choices Yes and No using Gini index and Lorenz curve. 
+
+
+```{r}
+library(ineq)
+library(tidyverse)
+
+votes = read_csv("votes.csv")
+
+yes = 
+  votes %>% 
+  filter(choice == 1) %>% 
+  pull(vp)
+
+no = 
+  votes %>% 
+  filter(choice == 2) %>% 
+  pull(vp)
+
+# Gini index
+(gini_yes = Gini(yes))
+(gini_no = Gini(no))
+
+# Lorenz curve
+Lc1 <- Lc(yes)
+Lc2 <- Lc(no)
+
+df_lorenz <- rbind(
+  data.frame(p = Lc1$p, L = Lc1$L, group = "Yes"),
+  data.frame(p = Lc2$p, L = Lc2$L, group = "No")
+)
+```
+
+
+```{r}
+ggplot(df_lorenz, aes(p, L, colour = group)) +
+  geom_line(linewidth = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "Lorenz curve for approval (Yes) and denial (No) options",
+    subtitle = "Both voting distributions are highly concentrated, with Gini above 0.9",
+    x = "Cumulative population share",
+    y = "Cumulative value share",
+    colour = ""
+  ) +
+  theme_minimal()
+
+```
+
+## Voting strategies
+
+Let's check the outcomes using one-person-one-vote, one-token-one-vote, as well as Quadratic Voting strategies.
+
+```{r}
+outcomes = 
+  votes |> 
+  group_by(choice) |>
+  summarise(one_person_one_vote = n(), one_token_one_vote = sum(vp), qv = sum(sqrt(vp))) |> 
+  mutate(share_one_person_one_vote = one_person_one_vote / sum(one_person_one_vote),
+         share_one_token_one_vote = one_token_one_vote / sum(one_token_one_vote),
+         share_qv = qv / sum(qv))
+
+outcomes |> 
+  filter(choice %in% c(1, 2)) |> 
+  select(choice, contains("share")) |> 
+  round(3)
+
+
+```
+
+

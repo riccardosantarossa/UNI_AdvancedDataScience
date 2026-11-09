@@ -1,0 +1,4 @@
+"0","coins3 <- coins |>"
+"0","  filter(slug %in% c(""bitcoin"", ""ethereum"", ""solana""))"
+"0",""
+"0","coins3"

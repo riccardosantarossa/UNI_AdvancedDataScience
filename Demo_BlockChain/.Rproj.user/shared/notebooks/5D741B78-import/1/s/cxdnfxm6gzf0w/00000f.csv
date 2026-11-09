@@ -1,0 +1,3 @@
+"0","file = ""http://users.dimi.uniud.it/~massimo.franceschet/ns/plugandplay/import/heights.csv"""
+"0","heights = read_csv(file)"
+"0","heights"

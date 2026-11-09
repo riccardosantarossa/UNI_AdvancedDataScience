@@ -1,0 +1,2 @@
+"0","risk_free <- read_csv(""data/risk_free.csv"")"
+"0","risk_free"

@@ -1,0 +1,9 @@
+"0","library(tidyverse)"
+"0","library(jsonlite)"
+"0",""
+"0","# get a tibble from JSON file"
+"0","json <- fromJSON(""voting.json"", flatten = TRUE)"
+"2","Error: lexical error: invalid char in json text.
+                                       voting.json
+                     (right here) ------^
+"

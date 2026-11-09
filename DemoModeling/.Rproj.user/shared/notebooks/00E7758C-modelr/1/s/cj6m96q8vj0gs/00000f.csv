@@ -1,0 +1,6 @@
+"0","library(dplyr)"
+"0",""
+"0","mpg %>% "
+"0","  arrange(displ) %>% "
+"0","  mutate(id = 1:nrow((mpg))) %>% "
+"0","  select(id, displ, hwy) "

@@ -1,0 +1,7 @@
+"0","performance <- prices3 |>"
+"0","  group_by(symbol) |>"
+"0","  arrange(timestamp, .by_group = TRUE) |>"
+"0","  mutate("
+"0","    index = 100 * close / first(close)"
+"0","  ) |>"
+"0","  ungroup()"

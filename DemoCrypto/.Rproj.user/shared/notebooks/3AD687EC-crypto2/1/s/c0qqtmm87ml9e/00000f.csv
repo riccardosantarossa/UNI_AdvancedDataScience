@@ -1,0 +1,4 @@
+"0","bitcoin <- bitcoin |>"
+"0","  mutate("
+"0","    log_return = log(close / lag(close))"
+"0","  )"

@@ -1,0 +1,4 @@
+"0","coins <- crypto_list()"
+"0",""
+"0","# save data locally"
+"0","write_csv(coins, ""data/coins.csv"")"

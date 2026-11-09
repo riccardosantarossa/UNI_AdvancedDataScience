@@ -1,0 +1,3 @@
+"0",""
+"0","# add values predicted by the model over the grid"
+"0","(grid <- add_predictions(grid, mod1))"

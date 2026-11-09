@@ -1,0 +1,3 @@
+"0","# To visualise a model, it is very useful to be able to generate "
+"0","# an evenly spaced grid of points from the data"
+"0","(grid <- data_grid(sim1, x))"

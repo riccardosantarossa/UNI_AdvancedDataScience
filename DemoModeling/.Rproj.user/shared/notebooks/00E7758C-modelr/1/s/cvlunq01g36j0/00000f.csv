@@ -1,0 +1,7 @@
+"0","# visualizing the model"
+"0","ggplot(sim1, aes(x,y)) + "
+"0","  geom_point() + "
+"0","  geom_abline(intercept = mod1$coefficients[1], "
+"0","              slope = mod1$coefficients[2], "
+"0","              color = ""red"")"
+"0",""

@@ -1,0 +1,7 @@
+"0","indexed_prices <- common_prices_long |>"
+"0","  group_by(asset) |>"
+"0","  arrange(date) |>"
+"0","  mutate("
+"0","    index = 100 * price / first(price)"
+"0","  ) |>"
+"0","  ungroup()"

@@ -1,0 +1,182 @@
+---
+title: "Blockchain"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The numerous components of blockchain technology can make it challenging to understand. However, each component can be described simply and used as a building block to understand the larger complex system.
+
+## Hash
+
+```{r}
+# load library
+library(digest)
+
+# hash a string
+digest("Così tra questa immensità s'annega il pensier mio", "sha256")
+
+# hash a slightly different string
+digest("Così tra questa infinità s'annega il pensier mio", "sha256")
+```
+
+## Chain
+
+```{r}
+mine <- function(previous_block, genesis = FALSE){
+  if (genesis) {
+    # define genesis block
+    new_block <- list(number = 0,
+                      timestamp = Sys.time(),
+                      data = "I'm the genesis block",
+                      parent_hash = "0")  
+  } else {
+    # create new block
+    current_number = previous_block$number + 1
+    new_block <- list(number = current_number,
+                      timestamp = Sys.time(),
+                      data = paste0("I'm block ", current_number),
+                      parent_hash = previous_block$hash)
+  }
+  # add hash 
+  new_block$hash <- digest(new_block, "sha256")
+  return(new_block)
+}
+
+chain = function(nblocks) {
+  # mine genesis block
+  block_genesis <- mine(NULL, TRUE)   
+  
+  # first block is the genesis block
+  blockchain <- list(block_genesis)
+
+  if (nblocks >= 2) {
+    # add new blocks to the chain
+    for (i in 2:nblocks){
+      blockchain[[i]] <- mine(blockchain[[i-1]], FALSE) 
+    }
+  }
+  
+  return(blockchain)
+}
+
+```
+
+```{r}
+chain(3)
+```
+
+## Proof of work
+
+```{r}
+proof_of_work = function(block, difficulty) {
+  block$nonce <- 0
+  block$hash = digest(block, "sha256")
+  zero = paste(rep("0", difficulty), collapse="")
+  while(substr(block$hash, 1, difficulty) != zero) {
+      block$nonce = block$nonce + 1
+      block$hash = digest(block, "sha256")  
+  }
+  return(block)
+}
+
+mine <- function(previous_block, difficulty = 3, genesis = FALSE) {
+  if (genesis) {
+    # define genesis block
+    new_block <-  list(number = 0,
+                       timestamp = Sys.time(),
+                       data = "I'm the genesis block",
+                       parent_hash = "0")  
+  } else {
+    # create new block
+    current_number <- previous_block$number + 1
+    new_block <- list(number = current_number,
+                      timestamp = Sys.time(),
+                      data = paste0("I'm block ", current_number),
+                      parent_hash = previous_block$hash)
+  }
+  
+  # add nonce and hash with proof of work
+  new_block <- proof_of_work(new_block, difficulty)
+  
+  return(new_block)
+}
+
+chain = function(nblocks, difficulty = 3) {
+  # mine genesis block
+  block_genesis = mine(NULL, difficulty, TRUE)   
+  
+  # first block is the genesis block
+  blockchain <- list(block_genesis)
+
+  if (nblocks >= 2) {
+    # add new blocks to the chain
+    for (i in 2:nblocks){
+      blockchain[[i]] <- mine(blockchain[[i-1]], difficulty) 
+    }  
+  }
+  return(blockchain)
+}
+
+```
+
+```{r}
+library(microbenchmark)
+chain(nblocks = 3, difficulty = 3)
+```
+
+## Digital signature
+
+```{r}
+# load library
+library(openssl)
+
+# generate a private key (prikey) and a public key (pubkey)
+prikey <- rsa_keygen()
+pubkey <- prikey$pubkey
+
+# Write keys in Privacy-Enhanced Mail (PEM) format
+write_pem(pubkey)
+write_pem(prikey)
+
+# build a transaction
+trans = list(sender = "A", receiver = "B", amount = "100")
+
+# serialize data
+data <- serialize(trans, NULL)
+
+# sign (a hash of) the transaction with private key
+sig <- signature_create(data, sha256, key = prikey)
+
+# verify the message with public key
+signature_verify(data, sig, sha256, pubkey = pubkey)
+
+# verify with the wrong key
+prikey2 <- rsa_keygen()
+pubkey2 <- prikey2$pubkey
+# try
+#signature_verify(data, sig, sha256, pubkey = pubkey2)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

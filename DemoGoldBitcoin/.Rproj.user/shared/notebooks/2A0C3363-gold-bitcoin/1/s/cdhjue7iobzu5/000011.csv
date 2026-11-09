@@ -1,0 +1,2 @@
+"0","prices <- read_csv(""data/prices.csv"")"
+"0","prices"

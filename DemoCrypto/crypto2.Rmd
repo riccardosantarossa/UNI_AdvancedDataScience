@@ -1,0 +1,567 @@
+---
+title: "Work with cryptocurrency data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+```
+
+The R package `crypto2` provides access to cryptocurrency data from [CoinMarketCap](https://coinmarketcap.com/) without requiring an API key. It follows the tidyverse philosophy and generally returns data as tibbles, making the results easy to manipulate with packages such as `dplyr` and visualize with `ggplot2`.
+
+Among other things, `crypto2` can retrieve:
+
+- lists of cryptocurrencies;
+- historical prices;
+- trading volume and market capitalization;
+- information and metadata about cryptocurrencies;
+- current and historical market listings;
+- aggregate information about the entire cryptocurrency market;
+- information about active and delisted cryptocurrencies.
+
+We will concentrate first on Bitcoin and then look at some of these additional features.
+
+## 1. Loading the package
+
+For our analysis, we load `crypto2` together with the tidyverse:
+
+```{r}
+library(crypto2)
+library(tidyverse)
+```
+
+`crypto2` provides the functions for obtaining cryptocurrency data. The tidyverse gives us tools for manipulating and visualizing those data.
+
+---
+
+## 2. Discovering available cryptocurrencies
+
+Before downloading prices, it is useful to see which cryptocurrencies are available.
+
+```{r eval=FALSE}
+coins <- crypto_list()
+
+# save data locally
+write_csv(coins, "data/coins.csv")
+```
+
+```{r}
+coins <- read_csv("data/coins.csv")
+coins
+```
+
+> When downloading the data from an external source, it is a good habit to save the data locally and load it when needed. 
+
+The function `crypto_list()` retrieves the list of active cryptocurrencies known to CoinMarketCap. By default, `only_active = TRUE`.
+
+The resulting tibble contains variables such as:
+
+- `id`: CoinMarketCap identifier;
+- `name`: cryptocurrency name;
+- `symbol`: ticker symbol;
+- `slug`: unique textual identifier;
+- `is_active`: whether the cryptocurrency is currently active;
+- `first_historical_data`: first date for which data are available;
+- `last_historical_data`: last available date.
+
+For example, we can locate Bitcoin:
+
+```{r}
+coins |>
+  filter(name == "Bitcoin")
+```
+
+
+A useful alternative is to use `slug`:
+
+```{r}
+btc <- coins |>
+  filter(slug == "bitcoin")
+
+btc
+```
+
+The `slug` is particularly useful because cryptocurrency symbols are not necessarily unique, whereas the CoinMarketCap slug is intended to uniquely identify the cryptocurrency.
+
+---
+
+## 3. Downloading Bitcoin historical prices
+
+The central function of `crypto2` is `crypto_history()`. It retrieves historical OHLC cryptocurrency data: Open, High, Low and Close prices, together with variables such as trading volume and market capitalization.
+
+For example, let us obtain Bitcoin prices from the beginning of 2020:
+
+```{r eval=FALSE}
+bitcoin <- crypto_history(
+  coin_list = btc,
+  start_date = "2020-01-01",
+  end_date = "2025-12-31",
+  interval = "1d"
+)
+
+# save on CSV
+write_csv(bitcoin, "data/bitcoin.csv")
+
+```
+
+```{r}
+bitcoin = read_csv("data/bitcoin.csv")
+bitcoin
+```
+
+
+The arguments have the following meanings:
+
+- `coin_list = btc` says that we want Bitcoin;
+- `start_date` specifies the first date;
+- `end_date` specifies the last date;
+- `interval = "1d"` requests daily observations.
+
+The result contains variables such as:
+
+```text
+timestamp
+name
+symbol
+open
+high
+low
+close
+volume
+market_cap
+```
+
+The four price variables have the usual financial meaning:
+
+```text
+open    price at the beginning of the period
+high    highest price during the period
+low     lowest price during the period
+close   price at the end of the period
+```
+
+`volume` measures trading volume, while `market_cap` measures the market capitalization of the cryptocurrency.
+
+For many analyses we need only a subset of these variables:
+
+```{r}
+bitcoin <- bitcoin |>
+  select(timestamp, open, high, low, close, volume, market_cap)
+
+bitcoin
+```
+
+
+
+---
+
+## 4. Plotting the Bitcoin price
+
+Once the data are in a tibble, we can use standard tidyverse tools.
+
+For example:
+
+```{r}
+bitcoin |>
+  ggplot(aes(x = timestamp, y = close)) +
+  geom_line() +
+  labs(
+    title = "Bitcoin price",
+    x = NULL,
+    y = "Price (USD)"
+  )
+```
+
+---
+
+## 5. Computing Bitcoin returns
+
+Financial analysis usually focuses on returns rather than directly on prices.
+
+A simple daily return can be calculated as
+
+\[
+r_t = \frac{P_t}{P_{t-1}} - 1.
+\]
+
+For example, a return of
+
+```text
+0.025
+```
+
+corresponds to a price increase of 2.5%.
+
+
+In R:
+
+```{r}
+bitcoin <- bitcoin |>
+  arrange(timestamp) |>
+  mutate(
+    return = close / lag(close) - 1
+  )
+
+bitcoin
+```
+
+`arrange(timestamp)` first ensures that observations are in chronological order.
+
+`lag(close)` gives yesterday's closing price. Therefore
+
+```r
+close / lag(close) - 1
+```
+
+calculates the percentage change from one day to the next, expressed as a decimal.
+
+
+Log returns are also common in financial analysis:
+
+```{r}
+bitcoin <- bitcoin |>
+  mutate(
+    log_return = log(close / lag(close))
+  )
+```
+
+The new variable `log_return` is
+
+\[
+\log(P_t/P_{t-1}).
+\]
+
+Log returns are particularly convenient when analysing financial time series because returns over successive periods can be added.
+
+---
+
+## 6. Downloading several cryptocurrencies
+
+`crypto2` is not restricted to Bitcoin.
+
+Suppose we want Bitcoin, Ethereum and Solana:
+
+```{r}
+coins3 <- coins |>
+  filter(slug %in% c("bitcoin", "ethereum", "solana"))
+
+coins3
+```
+
+The operator `%in%` keeps observations whose `slug` belongs to the specified set.
+
+We can now retrieve all three histories with a single call:
+
+```{r eval=FALSE}
+prices3 <- crypto_history(
+  coin_list = coins3,
+  start_date = "2024-01-01",
+  end_date = "2025-12-31",
+  interval = "1d"
+)
+
+write_csv(prices3, "data/prices3.csv")
+```
+
+```{r}
+prices3 = read_csv("data/prices3.csv")
+prices3
+```
+
+
+The resulting tibble contains observations for all three cryptocurrencies. The `symbol` variable tells us which cryptocurrency each row belongs to.
+
+We can therefore plot them separately:
+
+```{r}
+
+prices3 |>
+  ggplot(aes(x = timestamp, y = close)) +
+  geom_line() +
+  facet_wrap(~ symbol, scales = "free_y") +
+  labs(
+    title = "Cryptocurrency prices",
+    x = NULL,
+    y = "Price (USD)"
+  )
+```
+
+`facet_wrap(~ symbol)` creates one panel for each cryptocurrency.
+
+`scales = "free_y"` allows each cryptocurrency to have its own vertical scale. This is useful because the absolute prices of Bitcoin, Ethereum and Solana are very different.
+
+---
+
+## 7. Comparing cryptocurrency performance
+
+Comparing raw prices can be misleading. Instead, we can normalize every cryptocurrency to 100 on the first day.
+
+```{r}
+performance <- prices3 |>
+  group_by(symbol) |>
+  arrange(timestamp, .by_group = TRUE) |>
+  mutate(
+    index = 100 * close / first(close)
+  ) |>
+  ungroup()
+```
+
+`group_by(symbol)` tells R to perform subsequent calculations separately for each cryptocurrency.
+
+Within each group,
+
+```r
+first(close)
+```
+
+is the initial price. Therefore
+
+```r
+100 * close / first(close)
+```
+
+sets the initial value equal to 100.
+
+We can plot the result:
+
+```{r}
+performance |>
+  ggplot(aes(x = timestamp, y = index, color = symbol)) +
+  geom_line() +
+  labs(
+    title = "Cryptocurrency performance",
+    x = NULL,
+    y = "Index (initial value = 100)",
+    color = NULL
+  )
+```
+
+Now the lines measure relative performance rather than absolute price.
+
+A value of 150, for example, means that the cryptocurrency is worth 50% more than at the beginning of the selected period.
+
+---
+
+## 8. Hourly data
+
+`crypto_history()` can also retrieve higher-frequency observations.
+
+For example:
+
+```{r eval=FALSE}
+btc_hourly <- crypto_history(
+  coin_list = btc,
+  start_date = "2025-01-01",
+  end_date = "2025-01-03",
+  interval = "1h"
+)
+
+write_csv(btc_hourly, "data/btc_hourly.csv")
+```
+
+```{r}
+btc_hourly <- read_csv("data/btc_hourly.csv")
+btc_hourly
+```
+
+
+Here
+
+```r
+interval = "1h"
+```
+
+asks for hourly rather than daily observations. The package documentation specifically supports hourly historical retrieval as well as daily data.
+
+Hourly data can become large very quickly, so it is generally a good idea to request relatively short periods.
+
+---
+
+## 9. Getting information about a cryptocurrency
+
+Prices are not the only available information.
+
+The function `crypto_info()` retrieves descriptive information about cryptocurrencies:
+
+```{r eval=FALSE}
+btc_info <- crypto_info(
+  coin_list = btc
+)
+
+write_csv(btc_info, "data/btc_info.csv")
+```
+```{r}
+btc_info <- read_csv("data/btc_info.csv")
+btc_info 
+```
+
+The output can contain information such as:
+
+- description;
+- launch date;
+- website;
+- source-code repository;
+- blockchain explorers;
+- tags;
+- platform information;
+- technical documentation.
+
+
+For example:
+
+```{r}
+btc_info |>
+  select(name, symbol, date_added, description)
+```
+
+Here `select()` extracts a few descriptive variables from the much larger result returned by `crypto_info()`.
+
+This illustrates an important distinction:
+
+```text
+crypto_list()      What cryptocurrencies exist?
+crypto_info()      What do we know about them?
+crypto_history()   How have their prices evolved?
+```
+
+---
+
+## 10. Current cryptocurrency listings
+
+Another useful function is `crypto_listings()`.
+
+For example:
+
+```{r}
+latest <- crypto_listings(
+  which = "latest",
+  quote = TRUE
+)
+
+write_csv(latest, "data/latest.csv")
+```
+
+```{r}
+latest <- read_csv("data/latest.csv")
+```
+
+
+`which = "latest"` requests the latest market listing, while
+
+```r
+quote = TRUE
+```
+
+adds market information such as prices, market capitalization, trading volume and recent percentage changes.
+
+We could then inspect the largest cryptocurrencies ourselves:
+
+```{r}
+latest |>
+  arrange(desc(market_cap)) |>
+  select(name, symbol, price, market_cap, volume24h) |>
+  slice_head(n = 10)
+```
+
+`arrange(desc(market_cap))` orders cryptocurrencies from the largest market capitalization to the smallest.
+
+`slice_head(n = 10)` keeps the first ten observations.
+
+---
+
+## 11. Looking at the entire cryptocurrency market
+
+`crypto2` can also retrieve aggregate statistics rather than information about individual coins.
+
+For example:
+
+```{r}
+market <- crypto_global_quotes(
+  which = "historical",
+  start_date = "2024-01-01",
+  end_date = "2024-12-31",
+  quote = TRUE
+)
+
+
+write_csv(market, "data/market.csv")
+
+```
+
+```{r}
+market <- read_csv("data/market.csv")
+market
+```
+
+`crypto_global_quotes()` retrieves market-wide measures such as:
+
+- total cryptocurrency market capitalization;
+- total trading volume;
+- Bitcoin market dominance;
+- Ethereum market dominance;
+- number of active cryptocurrencies and exchanges.
+
+
+This makes it possible to study the cryptocurrency ecosystem as a whole instead of analysing one cryptocurrency at a time.
+
+---
+
+## 12. Inactive and untracked cryptocurrencies
+
+| Status | `is_active` | Meaning |
+|---|---:|---|
+| Active | `1` | Currently has tracked market data |
+| Inactive | `0` | Was tracked historically, but is no longer active/tracked |
+| Untracked | `-1` | Listed by CoinMarketCap, but does not meet requirements for tracked market data |
+
+One particularly interesting feature of `crypto2` is its treatment of cryptocurrencies that are no longer active.
+
+By default:
+
+```r
+coins <- crypto_list()
+```
+
+returns active cryptocurrencies.
+
+We can also request inactive ones:
+
+```{r eval=FALSE}
+all_coins <- crypto_list(
+  only_active = FALSE
+)
+```
+
+And we can include cryptocurrencies classified as untracked:
+
+```{r eval=FALSE}
+all_coins <- crypto_list(
+  only_active = FALSE,
+  add_untracked = TRUE
+)
+```
+
+This feature is important for research.
+
+Imagine studying cryptocurrency investment performance using only the cryptocurrencies that exist today. Cryptocurrencies that failed and disappeared would be absent from the sample, potentially making historical investment performance appear better than it really was.
+
+This is known as survivorship bias.
+
+Because `crypto2` provides information about historically listed and delisted cryptocurrencies, it can be particularly useful for studying this problem.
+
+---
+
+# Summary
+
+The main `crypto2` functions introduced in this tutorial are:
+
+| Function | Purpose |
+|---|---|
+| `crypto_list()` | List available cryptocurrencies |
+| `crypto_history()` | Download historical OHLC prices, volume and market capitalization |
+| `crypto_info()` | Retrieve descriptive information about cryptocurrencies |
+| `crypto_listings()` | Retrieve current or historical market listings |
+| `crypto_global_quotes()` | Retrieve aggregate cryptocurrency-market statistics |
+
+
+One current limitation is worth remembering: following changes in the underlying CoinMarketCap interface, `crypto2` currently provides USD and BTC as the main quote currencies for historical cryptocurrency data. The package also does not require a CoinMarketCap API key because it accesses information exposed through CoinMarketCap's public web interface.

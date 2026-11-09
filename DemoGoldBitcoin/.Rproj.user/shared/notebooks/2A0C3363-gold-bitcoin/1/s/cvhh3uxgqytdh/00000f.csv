@@ -1,0 +1,7 @@
+"0","common_prices <- prices |>"
+"0","  select(date, asset, close) |>"
+"0","  pivot_wider("
+"0","    names_from = asset,"
+"0","    values_from = close"
+"0","  ) |>"
+"0","  drop_na()"

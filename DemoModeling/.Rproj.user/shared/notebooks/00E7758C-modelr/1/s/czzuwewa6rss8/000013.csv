@@ -1,0 +1,5 @@
+"0",""
+"0","# plot both observed and predicted values"
+"0","ggplot(sim1, aes(x = x)) +"
+"0","  geom_point(aes(y = y)) + # observed values"
+"0","  geom_line(data = grid, mapping = aes(y = pred), colour = ""red"") # predicted values"

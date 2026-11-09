@@ -1,0 +1,6 @@
+"0","dollar_relationship <- returns_wide |>"
+"0","  pivot_longer("
+"0","    cols = c(Bitcoin, Gold),"
+"0","    names_to = ""asset"","
+"0","    values_to = ""asset_return"""
+"0","  )"

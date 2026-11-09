@@ -1,0 +1,7 @@
+"0","yearly_correlations_long <-"
+"0","  yearly_correlations |>"
+"0","  pivot_longer("
+"0","    -year,"
+"0","    names_to = ""pair"","
+"0","    values_to = ""correlation"""
+"0","  )"

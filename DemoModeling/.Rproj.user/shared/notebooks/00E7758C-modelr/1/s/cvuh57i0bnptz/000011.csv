@@ -1,0 +1,3 @@
+"0",""
+"0","# scatter plot"
+"0","ggplot(sim1, aes(x,y)) + geom_point()"
