@@ -1,0 +1,7 @@
+"0","n = length(t)"
+"0","col = rgb(runif(n), runif(n), runif(n))"
+"0","ggplot(df, aes(x * t, y * t)) + "
+"0","   geom_point(aes(size = t, color = col), alpha = 0.5, shape = 17, show.legend = FALSE) +"
+"0","   coord_fixed() +"
+"0","   theme_void() "
+"0",""

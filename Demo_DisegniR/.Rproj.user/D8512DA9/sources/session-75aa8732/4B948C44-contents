@@ -1,0 +1,182 @@
+---
+title: "Phyllotaxis: Draw flowers using R"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+In botany, [phyllotaxis](https://en.wikipedia.org/wiki/Phyllotaxis)  is the arrangement of leaves on a plant stem (from Ancient Greek phýllon "leaf" and táxis "arrangement"). 
+
+In this notebook, we are using the <code>ggplot2</code> package. Apart from having fun, we will learn many important features of it that will be useful not only to do art but also to represent data in real-life problems.
+
+
+```{r}
+# Loading in the ggplot2 package
+library(ggplot2)
+```
+
+
+## Warming up: drawing points on a circle
+In this notebook, we will only work with geometry <code>geom_point</code> which plots points in two dimensions. We just need a dataset with two variables, let's call them <code>x</code> and <code>y</code>.
+
+
+Let's start by drawing 17 points on a circle of radius 1 (with an angle of $\pi/8$ between each point). Using trigonometry we have that for an angle $t \in [0, 2\pi]$ the points $(x,y)$ on the circle of radius $R$ are given by:
+
+$$
+x = R \cdot \cos(t) \\
+y = R \cdot \sin(t)
+$$
+
+
+```{r}
+# make the circle data frame
+t <- seq(0, 2*pi, length.out = 17)
+x <- cos(t)
+y <- sin(t)
+df <- data.frame(t, x, y)
+
+# make a scatter plot of points in the circle data frame
+ggplot(df, aes(x, y)) + 
+  geom_point() + 
+  coord_fixed()
+```
+
+
+
+
+## Make it a spiral with the Golden Angle
+Plants arrange their leaves in spirals. A spiral is a curve starts from the origin and moves away from this point as it revolves around it. In the plot above all our points are at the same distance from the origin. A simple way to arrange them in a spiral is to multiply <code>x</code> and <code>y</code> by a factor which increases for each point. We could use <code>t</code> as that factor, as it meets these conditions, but we will do something more harmonious. We will use the <a href="https://en.wikipedia.org/wiki/Golden_angle">Golden Angle</a>:
+$$\pi (3 − \sqrt{5})$$
+
+This number is inspired by the Golden Ratio, one of the most famous numbers in the history of mathematics. Both the Golden Ratio and the Golden Angle appear in unexpected places in nature, includig shells, spiral galaxies, and hurricanes.
+
+```{r, echo=FALSE, fig.align='center', out.width='30%'}
+knitr::include_graphics("Goldener_Schnitt_Blattstand.png")
+```
+
+
+
+```{r}
+
+
+# defining the number of points
+points = 500
+
+# defining the Golden Angle
+# radians
+(angle = pi * (3 - sqrt(5)))
+# degrees
+(angle * 180/pi)
+
+t <- (1 : points) * angle
+x <- cos(t)
+y <- sin(t)
+df <- data.frame(t, x, y)
+
+# make a scatter plot of points in a spiral
+ggplot(df, aes(x * t, y * t)) + 
+  geom_point() +
+  coord_fixed()
+```
+
+
+
+
+## Remove everything unnecessary
+Apart from data, a plot includes many other components that define its final appearance. Art does not get along with most of these elements, so it's time to move to action.
+
+
+```{r}
+ggplot(df, aes(x * t, y * t)) + 
+   geom_point() +
+   coord_fixed() +
+   theme_void()
+
+```
+
+
+
+## A bit of makeup: size, color and transparency
+Our drawing starts to look like a plant, but we can do it much better. By changing color, transparency (also called alpha), and size of the points, the image will become more appealing: 
+
+* change the size of points to 0.8
+* change the alpha (transparency) to 0.5
+* change the color to darkgreen
+* remove the legend
+
+```{r}
+ ggplot(df, aes(x * t, y * t)) + 
+   geom_point(size = 0.8, alpha = 0.5, color = "darkgreen", show.legend = FALSE) +
+   coord_fixed() +
+   theme_void()
+
+```
+
+
+
+## Play with aesthetics: the dandelion
+Until now, all points have the same appearance (<code>size</code>, <code>color</code>, <code>shape</code>, and <code>alpha</code>). Sometimes you will want to make the appearance of the points dependent on a variable in your dataset. Now we will make size variable. We will also change the shape of points. Although we won't be able to blow on it, the resulting image should remind you of a dandelion:
+
+* change the color of the points to black
+* change the shape number so that the points become spiky asterisks (shape number 8)
+* map size of the points to the variable <code>t</code> in <code>df</code>
+
+
+```{r}
+ ggplot(df, aes(x * t, y * t)) + 
+   geom_point(aes(size = t), alpha = 0.5, color = "black", shape = 8, show.legend = FALSE) +
+   coord_fixed() +
+   theme_void()
+
+```
+
+
+
+## Put all it together: the sunflower
+Plants not only use the Golden Angle to arrange leaves. It is also found in the arrangement of sunflower seeds. We don't need anything new to draw a sunflower; we just need to combine some of the things we already know:
+
+* change the shape of all points to filled triangles (shape number 17)
+* change the color of the points to yellow
+
+
+
+```{r}
+ ggplot(df, aes(x * t, y * t)) + 
+   geom_point(aes(size = t), alpha = 0.5, color = "yellow", shape = 17, show.legend = FALSE) +
+   coord_fixed() +
+   theme_void()
+
+
+```
+
+Now try to color the shapes with random colors:
+
+
+```{r}
+n = length(t)
+col = rgb(runif(n), runif(n), runif(n))
+ggplot(df, aes(x * t, y * t)) + 
+   geom_point(aes(size = t, color = col), alpha = 0.5, shape = 17, show.legend = FALSE) +
+   coord_fixed() +
+   theme_void() 
+
+```
+
+Finally, save your artwork in a local PNG file:
+
+```{r}
+ggsave("flower.png", width = 8, height = 8, dpi = 300)
+```
+
+
+
+## Take-home message
+
+Making art has been a fun excuse to learn to use <code>ggplot</code>. All the tricks we have seen in this notebook are useful when plotting *real* data too.
+
+

@@ -1,0 +1,5 @@
+"0"," ggplot(df, aes(x * t, y * t)) + "
+"0","   geom_point(size = 0.8, alpha = 0.5, color = ""darkgreen"", show.legend = FALSE) +"
+"0","   coord_fixed() +"
+"0","   theme_void()"
+"0",""
