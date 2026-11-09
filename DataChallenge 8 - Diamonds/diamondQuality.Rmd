@@ -1,0 +1,53 @@
+---
+title: "DiamondQuality"
+author: "Riccardo Santarossa"
+date: "2026-11-09"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(modelr)
+```
+
+Utilizzando i **modelli** si vuole comprendere come mai i diamanti che si pensa "peggiori", quindi con un taglio meno preciso, un colore e una clarity peggiore abbiano in realtà un valore più elevato.
+
+Per cercare di comprendere come taglio, colore e clarity influiscano sul prezzo creo un modello che, a partire dalle tre grandezze, cerca di stimare il prezzo.
+
+```{r}
+diamonds
+```
+
+Guardando il dataset, e conoscendo la scala di valutazione di taglio, colore e purezza, si potrebbe pensare che ci sia una tendenza, paradossale, che premia i diamanti considerati meno pregiati.
+
+```{r message=FALSE, warning=FALSE}
+
+#creo il modello 
+diamondModel = lm(price ~  + cut + color + clarity, data = diamonds)
+summary(diamondModel)
+```
+
+Con le tre grandezze considerate, il valore di R-squared è molto basso, dimostrando la poca precisione del modello nello stimare il prezzo basandosi su quelle tre dimensioni. Basandosi quindi sul valore restituito dal modello, le variabili legate a taglio, purezza e colore non sembrano rappresentative del valore finale del diamante, in altre parole, non sembra esserci correlazione.
+
+I diamanti però vengono venduti, come altri metalli preziosi, in base al peso, quindi in relazione al carato. Per comprendere al meglio dove si trova il paradosso, aggiungiamo anche il peso in carati al modello. Se il paradosso fosse "corretto", il peso, quindi il valore di *carat* non dovrebbe influenzare il valore di R-squared in maniera troppo significativa.
+
+Aggiungiamo quindi il valore di carat al modello e verifichiamo come cambia il valore dell'R-squared
+
+```{r message=FALSE, warning=FALSE}
+#creo il modello includendo il peso in carati della pietra
+diamondModelWithCarat = lm(price ~ carat + cut + color + clarity, data = diamonds)
+summary(diamondModelWithCarat)
+```
+
+Aggiungendo i carati, si vede come il valore di R-squared sale a 0.915, segno che l'inclusione del peso del diamante ha reso il modello molto più "sicuro" nella previsione, confermando il fatto che, appunto, una pietra di grandi dimensioni verrà sempre venduta ad un prezzo maggiore di una di piccole dimensioni. Viene confermata quindi l'ipotesi fatta in prcedenza e si mostra la presenza di correlazione tra peso e valore finale, in quanto R-squared è prossimo a 1.
+
+Il paradosso quindi si trova proprio qui: i valori di *cut*, *color* e *clarity* da soli sembrerebbero mostrare che un diamante "peggiore" valga di più, quando invece il grosso del valore della pietra è dato dalla sua dimensione. 
+
+Un tagliatore di diamanti quindi predilirà avere a disposizione diamanti di peso maggiore, che seppure meno appetibili in fatto di colore, purezza e taglio, garantiranno un prezzo maggiore al momento della vendita.
