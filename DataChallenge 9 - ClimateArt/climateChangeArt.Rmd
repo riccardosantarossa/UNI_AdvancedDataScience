@@ -1,0 +1,85 @@
+---
+title: "Art on Climate Change"
+author: "Riccardo Santarossa"
+date: "2026-11-14"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+#import dei dati
+library(tidyverse)
+
+url = paste0(
+  "https://data.giss.nasa.gov/gistemp/",
+  "tabledata_v4/GLB.Ts+dSST.csv"
+)
+
+temp_raw = read_csv(
+  url,
+  skip = 1,
+  na = c("***", "****"),
+  show_col_types = FALSE
+)
+
+temps = write.csv(temp_raw, "anomalyData.csv")
+```
+
+Per la manipolazione dei dati ho utilizzato la funzione di costruzione del dataframe vista nella demo. Ho aggiunto poi la lunghezza e l'angolo in relazione all'anomalia.
+
+Per la realizzazione dell'artwork, all'anomalia sono stati mappati *angolo* e *lunghezza* dello spoke: maggiore è l'anomalia, maggiore saranno lunghezza e inclinazione, sia in positivo che negativo. Inoltre i mesi sono stati mappati in factors in modo da poterli esprimere numericamente e seguendo l'ordinamento naturale dell'anno, anche se poi la legenda è stata rimossa per dare risalto ai colori.
+
+```{r warning=FALSE, message=FALSE}
+
+tempData = read.csv("anomalyData.csv")
+
+tempData = tempData |>
+  select(Year, Jan:Dec) |>
+  pivot_longer(
+    cols = Jan:Dec,
+    names_to = "month",
+    values_to = "anomaly") |>
+  drop_na(anomaly)
+
+#mapping dell'anomalia
+tempData = tempData |>
+  mutate(
+    y_num = as.numeric(factor(month, levels = unique(month))),
+    angle = anomaly * pi / 2,
+    len = 0.8 + abs(anomaly) * 1.5) 
+
+#plot
+ggplot(tempData, aes(x = Year, y = y_num, color = anomaly)) +
+geom_spoke(
+    aes(angle = angle, radius = len),
+    linewidth = 1.4,
+    alpha = 0.85,
+    lineend = "round",
+    show.legend = FALSE 
+  ) +
+  scale_color_gradient2(
+    low ="#1D4E5F",
+    mid = "#D6CFC2",
+    high = "#D95F02",
+    midpoint = 0,
+    guide = "none") +
+  labs(
+    title = "Spokes of Climate",
+    subtitle = "Annual temperature anomalies from 1880 to present"
+    ) + 
+  theme_void()
+  
+ggsave("climateSpokes.jpg", height = 8, width = 8)
+
+```
+
+
+Ho utilizzato uno spoke per rappresentare il concetto di "sbalzo" di temperatura. In questo caso l'anomalia è rappresentata da un elemento verticale inclinato, che rende più artistico un classico istogramma e veicola meglio il messaggio rispetto ad un tiling.
+
+Il gradiente di colore poi rappresenta anch'esso l'entità dell'anomalia: una sfumatura più accesa e viva indica un'anomalia positiva, una più tenue e fredda indica un'anomalia negativa.
+
+
